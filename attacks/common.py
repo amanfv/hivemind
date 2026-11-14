@@ -23,20 +23,23 @@ def target_from_args(description, hivemind_step, hivemind_ready=False):
     return target
 
 
-async def hivemind_buy(client, agent, url, reason="needed for my task", token=None):
+async def hivemind_buy(client, agent, url, reason="needed for my task", token=None, purchase_id=None):
     """Ask hivemind to buy `url` as `agent` (or with an explicit `token`).
 
-    Returns {"agent", "ok", "error", "tx", "explorer", ...} like naive_buy does.
+    Pass the same `purchase_id` on a retry; leave it out for a new purchase.
+    Returns {"agent", "ok", "error", "tx", "explorer", "replayed"} like naive_buy does.
     """
     r = await client.post(
         f"{GATEWAY}/buy",
-        json={"url": url, "reason": reason, "purchaseId": str(uuid.uuid4())},
+        json={"url": url, "reason": reason, "purchaseId": purchase_id or str(uuid.uuid4())},
         headers={"Authorization": f"Bearer {token or load_token(agent)}"},
         timeout=60,
     )
     body = r.json()
     return {"agent": agent, "ok": body.get("status") == "ok", "error": body.get("error"),
-            "tx": body.get("txHash"), "explorer": body.get("explorer")}
+            "tx": body.get("txHash"), "explorer": body.get("explorer"),
+            "replayed": body.get("replayed", False),
+            "report": (body.get("data") or {}).get("report")}
 
 
 def headline(title, story):

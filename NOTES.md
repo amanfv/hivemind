@@ -75,3 +75,20 @@ This splits the jobs: **the chain** proves a payment *really happened*; **hivemi
 **The key line for the pitch:** with hivemind, a stolen pass can only ever buy from approved shops, up to that one agent's limit. It can never send money to the thief.
 
 **In our own words:** _(to fill in: how does the hold stop two agents from both seeing "room left"?)_
+
+## Step 4: purchase IDs and the payment queue
+
+**Purchase IDs (no double paying):** the agent makes one ID per thing it buys and reuses it on every retry. Hivemind remembers every ID. The database itself refuses a second row with the same (agent, ID), so even two requests at the same instant can't both start the purchase. Seen before and still running → wait for the first and return its result. Seen before and finished → "already paid, here's the receipt". Hivemind also never pays the same shop order twice, and the shop never accepts the same payment twice: three layers.
+
+**The payment queue (one clerk owns the cheque book):** hands out cheque numbers from its own counter, **saves a photocopy of every signed payment before sending it**, and if a cheque is rejected, **fills the hole** with a 0 BTC cheque to ourselves so the ones behind it aren't stuck forever.
+
+**Why the photocopy matters:** if hivemind crashes, the photocopies tell it which cheques it already wrote, which agent's purchase each one was for, and whether each was cashed. So it never pays twice, never loses track of money, and never reuses a cheque number. (Step 5 is the restart routine that reads them.)
+
+**Same attacks, now against hivemind:**
+| Attack | Naive | Hivemind |
+|---|---|---|
+| Double paying | Slow shop + impatient agent: **paid twice** for one report | Retry with the same purchase ID: **one payment**, and the retry got the report |
+| Traffic jam | 10 at once: **9 of 10 failed** (everyone wrote cheque #13) | **20 at once: 20 of 20 succeeded** in 7 s, cheques #16–#35, one each |
+| Hole test | — | Cheque #37 forced to fail → filled with a 0 BTC cheque → #38 and #39 still went through, hold released. **PASS** |
+
+**In our own words:** _(to fill in: what would happen to cheques #38 and #39 if we didn't fill the hole at #37?)_

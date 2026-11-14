@@ -140,7 +140,7 @@ Who pays whom:
 | 1 ✅ | Seller (normal mode), simple gateway, one agent | One command runs Intent → Audit and prints the tx link |
 | 2 ✅ | Naive version + attack scripts (can run in parallel with 3–4) | Each attack visibly loses money or jams on the explorer |
 | 3 ✅ | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
-| 4 | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
+| 4 ✅ | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
 | 5 | Crash recovery + reconciliation | `kill -9` mid-payment, then restart: no double pay, and the ledger matches the chain |
 | 6 | Global-lock flag, benchmark chart, dashboard | The chart shows lazy lock vs hivemind, both correct |
 | 7 | Write-ups, demo script, backup video | Submitted before 10 AM Sunday |
@@ -157,9 +157,15 @@ Steps 0–5 are must-haves.
 - `db.py`: SQLite `hivemind.db` (gitignored, WAL mode, autocommit; transactions are opened by hand). Tables: `log` (append-only), `team` (budget), `agents` (sha256 of the pass, limit, enabled), `sellers` (origin → approved pay_to, price cap), `holds` (held → spent/released). Money is stored in USDC units (integers). `python db.py` prints the logbook.
 - `policy.py`: gate 1 `check_pass()` + `check_seller()`; gate 2 `check_quote()` (official token, payTo == approved, price ≤ cap, not expired); `place_hold()` (BEGIN IMMEDIATE, re-checks the off switch, sums holds for team and agent, no await), `mark_spent()`, `release()`. Rules raise `Denied(reason)`.
 - `admin.py`: `setup` (10 passes → `tokens.json` (gitignored), limit 0.03 each; the shop approved with cap 0.05), `budget X` (new period: clears holds, refuses while any are in flight), `disable/enable agentN`, `status`.
-- `gateway.py`: Intent → gate 1 → quote → gate 2 + hold → pay → confirm (spent / released) → proof → audit. It reads the nonce once at startup and counts locally (`take_nonce()`); on `nonce too low` it re-syncs once (e.g. after `fund_naive.py` used the wallet). A missing receipt keeps the hold (Step 5 recovers it). No BTC-for-gas check yet.
+- `purchases.py`: purchase IDs. `claim()` (BEGIN IMMEDIATE; PRIMARY KEY (agent, purchase_id)) → new / working / replay; a `failed` purchase (no money moved) may be retried with the same ID. `set_order()` (order_id UNIQUE → never pay a shop order twice). `finish()` stores the reply so retries get the same answer.
+- `payqueue.py`: the only code that loads the shared key. `start()` reads the nonce once (never below max saved nonce + 1). `pay()`: take the nonce → sign → **save to `payments` before broadcasting** → broadcast (`already known` = fine). If rejected → `fill_gap(nonce)` (0 BTC self-transfer, same nonce) → raise `PaymentRejected`. On `nonce too low` → re-sync and retry once. `mark()` sets a payment's status. `fail_nonce` is a test switch.
+- `gateway.py`: gate 1a (pass) → `purchases.claim` (replay / wait on the in-flight task / new) → the purchase runs as its own task (survives the agent hanging up) → gate 1b → quote → gate 2 + `set_order` + hold → `payqueue.pay` → confirm (spent / released) → proof → audit → `purchases.finish`. A missing receipt keeps the hold and leaves the purchase `working` (Step 5 recovers it). `POST /test/reject-next-payment` is a test switch. No BTC-for-gas check yet.
+- `db.py` also has `purchases` (agent, purchase_id, status, order_id UNIQUE, tx_hash, result) and `payments` (nonce, tx_hash, raw_tx, kind purchase/gap_fill, hold_id, status signed/sent/confirmed/failed/rejected). Gap-fill rows stay `sent`; Step 5 can confirm them.
+- `chain.py` has `sign_usdc_transfer()`, `sign_gap_filler()` (both return (tx_hash, raw_tx) without sending) and `broadcast(raw_tx)`.
 - `agent.py`: one agent; `python agent.py [weather|btc|coffee]` buys a report through hivemind as agent1 and prints the explorer link.
-- Attacks with `--target hivemind`: `overspend` (10 at the same instant, budget 0.05 → exactly 5 paid), `redirect` (refused at gate 2), `steal` (thief has agent3's pass: evil quote refused, 3 of 6 paid then over the limit, off switch, agent1 unaffected). `double_pay` and `jam` still say Step 4.
+- `admin.py setup` makes **20** passes.
+- All five attacks have `--target hivemind`: `overspend` (10 at the same instant, budget 0.05 → exactly 5 paid), `redirect` (refused at gate 2), `steal` (thief has agent3's pass: evil quote refused, 3 of 6 paid then over the limit, off switch, agent1 unaffected), `double_pay` (retry with the same purchase ID → 1 payment, report replayed), `jam` (20 agents at the same instant → 20/20 in about 7 s).
+- `tests/gap_fill.py` (`python -m tests.gap_fill`): forces a rejection, checks that the hole is filled on chain, that later payments confirm, and that the hold is released.
 - `seller.py` demo modes are URLs: `/slow/report/{topic}` (delivers 8 s after checking the payment) and `/evil/report/{topic}` (quote's payTo swapped to the attacker; the shop still expects payment to itself, so it refuses the proof).
 - `chain.py` also has `send_btc()`, and `send()` / `pay_usdc()` take an optional `nonce` (None = ask the chain).
 - `make_wallets.py` is add-only now: it adds missing roles and never replaces existing ones. Roles: shared, seller, attacker, **naive**.

@@ -154,13 +154,45 @@ async def _nonce_and_fees(account, nonce=None):
     }
 
 
-async def _sign_and_broadcast(account, tx):
-    """Sign locally, work out the tx hash, then broadcast the signed bytes."""
+def _sign(account, tx):
+    """Sign locally. Returns (tx_hash, raw_tx) as hex strings.
+
+    The hash is known BEFORE broadcasting, so the payment queue can save the
+    signed payment (its "photocopy") first, then send it.
+    """
     signed = account.sign_transaction(tx)
-    # The hash is known before broadcasting (Step 5 relies on this).
-    tx_hash = "0x" + signed.hash.hex().removeprefix("0x")
-    await w3.eth.send_raw_transaction(signed.raw_transaction)
+    return "0x" + signed.hash.hex().removeprefix("0x"), "0x" + signed.raw_transaction.hex().removeprefix("0x")
+
+
+async def broadcast(raw_tx):
+    """Hand signed bytes to the chain. Sending the same bytes twice is harmless:
+    the same cheque number can only be cashed once."""
+    await w3.eth.send_raw_transaction(raw_tx)
+
+
+async def _sign_and_broadcast(account, tx):
+    """Sign locally, then broadcast the signed bytes. Returns the tx hash."""
+    tx_hash, raw_tx = _sign(account, tx)
+    await broadcast(raw_tx)
     return tx_hash
+
+
+async def sign_usdc_transfer(account, to, amount, nonce):
+    """Build and sign (but don't send) a USDC payment. Returns (tx_hash, raw_tx)."""
+    call = usdc.functions.transfer(to, usdc_to_units(amount))
+    tx = await call.build_transaction(await _nonce_and_fees(account, nonce))
+    return _sign(account, tx)
+
+
+async def sign_gap_filler(account, nonce):
+    """Build and sign a 0 BTC payment to ourselves with cheque number `nonce`.
+
+    Used to fill a hole when a payment with that number was rejected, so the
+    payments numbered after it aren't stuck forever. Returns (tx_hash, raw_tx).
+    """
+    tx = await _nonce_and_fees(account, nonce)
+    tx.update({"to": account.address, "value": 0, "gas": 21_000})
+    return _sign(account, tx)
 
 
 async def pay_usdc(account, to, amount, nonce=None):

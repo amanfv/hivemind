@@ -9,10 +9,14 @@ they all write that same cheque. Only one can be cashed.
 """
 
 import asyncio
+import time
 
+import httpx
+
+import admin
 import chain
 import naive_agent
-from attacks.common import SHOP, balances, headline, target_from_args, verdict
+from attacks.common import SHOP, balances, headline, hivemind_buy, target_from_args, verdict
 
 AGENTS = 10
 
@@ -49,7 +53,45 @@ async def run_naive():
     ])
 
 
+HIVEMIND_AGENTS = 20
+
+
+async def run_hivemind():
+    """Twice as many agents, all at the same instant, through the payment queue."""
+    admin.set_budget(1)
+    shared_addr = chain.load_address("shared")
+    nonce_before = await chain.w3.eth.get_transaction_count(shared_addr)
+    before = await balances("shared")
+    start = time.monotonic()
+
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*(
+            hivemind_buy(client, f"agent{i + 1}", f"{SHOP}/report/btc")
+            for i in range(HIVEMIND_AGENTS)
+        ))
+    took = time.monotonic() - start
+
+    print("\nResults:")
+    for r in results:
+        status = "got report" if r["ok"] else f"FAILED: {r['error']}"
+        print(f"  {r['agent']:<8} {status}  {r['explorer'] or ''}")
+
+    nonce_after = await chain.w3.eth.get_transaction_count(shared_addr)
+    after = await balances("shared")
+    got = sum(r["ok"] for r in results)
+    verdict([
+        f"Agents that tried to pay:        {HIVEMIND_AGENTS} (all at the same instant)",
+        f"Payments that reached the chain: {nonce_after - nonce_before}  "
+        f"(cheque numbers {nonce_before}..{nonce_after - 1}, one each)",
+        f"Agents that got their report:    {got}",
+        f"{'NO JAM' if got == HIVEMIND_AGENTS else 'JAMMED'}: {got} of {HIVEMIND_AGENTS} in {took:.1f}s, "
+        f"{before['shared'] - after['shared']} USDC spent",
+        "Why: one payment queue hands out cheque numbers from its own counter.",
+    ])
+
+
 if __name__ == "__main__":
-    target_from_args(__doc__, hivemind_step=4)
-    headline("Traffic jam", f"{AGENTS} agents pay at the same instant from one wallet")
-    asyncio.run(run_naive())
+    target = target_from_args(__doc__, hivemind_step=4, hivemind_ready=True)
+    n = AGENTS if target == "naive" else HIVEMIND_AGENTS
+    headline(f"Traffic jam vs {target}", f"{n} agents pay at the same instant from one wallet")
+    asyncio.run(run_naive() if target == "naive" else run_hivemind())

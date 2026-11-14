@@ -1,6 +1,6 @@
 """The operator's controls for hivemind.
 
-    .venv/bin/python admin.py setup            # 10 agents + the shop; writes tokens.json
+    .venv/bin/python admin.py setup            # 20 agents + the shop; writes tokens.json
     .venv/bin/python admin.py budget 0.05      # new budget period: set budget, clear holds
     .venv/bin/python admin.py disable agent3   # the off switch for one pass
     .venv/bin/python admin.py enable agent3
@@ -19,7 +19,7 @@ import policy
 from db import conn
 
 TOKENS_FILE = "tokens.json"  # each agent's pass (gitignored). The database only stores hashes.
-AGENTS = [f"agent{i}" for i in range(1, 11)]
+AGENTS = [f"agent{i}" for i in range(1, 21)]
 AGENT_LIMIT = "0.03"         # USDC each agent may spend in a budget period
 TEAM_BUDGET = "1"            # USDC, default budget
 SHOP_ORIGIN = "http://127.0.0.1:8001"
@@ -27,7 +27,7 @@ SHOP_PRICE_CAP = "0.05"      # USDC per purchase
 
 
 def setup():
-    """Create the team budget, 10 agent passes and the approved shop. Replaces old passes."""
+    """Create the team budget, 20 agent passes and the approved shop. Replaces old passes."""
     tokens = {name: f"tok-{name}-{secrets.token_hex(12)}" for name in AGENTS}
     conn.execute("BEGIN IMMEDIATE")
     conn.execute("DELETE FROM agents")

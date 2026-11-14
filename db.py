@@ -60,6 +60,33 @@ CREATE TABLE IF NOT EXISTS holds (
     created      TEXT NOT NULL,
     updated      TEXT NOT NULL
 );
+
+-- One row per purchase the agents ask for. The PRIMARY KEY is the dedupe rule:
+-- the database itself refuses a second row with the same (agent, purchase_id).
+CREATE TABLE IF NOT EXISTS purchases (
+    agent       TEXT NOT NULL,
+    purchase_id TEXT NOT NULL,
+    status      TEXT NOT NULL CHECK (status IN ('working', 'done', 'failed')),
+    order_id    TEXT UNIQUE,         -- the shop's order number: never pay one twice
+    tx_hash     TEXT,
+    result      TEXT,                -- the reply we gave (JSON), replayed on retries
+    created     TEXT NOT NULL,
+    updated     TEXT NOT NULL,
+    PRIMARY KEY (agent, purchase_id)
+);
+
+-- The payment queue's "photocopies": every signed payment, saved BEFORE sending.
+CREATE TABLE IF NOT EXISTS payments (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    nonce    INTEGER NOT NULL,       -- the cheque number
+    tx_hash  TEXT NOT NULL UNIQUE,
+    raw_tx   TEXT NOT NULL,          -- the signed bytes (can be resent as-is)
+    kind     TEXT NOT NULL CHECK (kind IN ('purchase', 'gap_fill')),
+    hold_id  INTEGER,                -- which purchase's money (NULL for gap fillers)
+    status   TEXT NOT NULL CHECK (status IN ('signed', 'sent', 'confirmed', 'failed', 'rejected')),
+    created  TEXT NOT NULL,
+    updated  TEXT NOT NULL
+);
 """
 
 # isolation_level=None: we open transactions ourselves (BEGIN IMMEDIATE in policy.py).
