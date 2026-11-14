@@ -136,7 +136,7 @@ Who pays whom:
 | Step | Build | Done when |
 |---|---|---|
 | 0 ✅ | Repo + MIT licence, RPC client, wallets funded from the faucet, explorer link helper | One test USDC transfer shows on the explorer |
-| 1 | Seller (normal mode), simple gateway, one agent | One command runs Intent → Audit and prints the tx link |
+| 1 ✅ | Seller (normal mode), simple gateway, one agent | One command runs Intent → Audit and prints the tx link |
 | 2 | Naive version + attack scripts (can run in parallel with 3–4) | Each attack visibly loses money or jams on the explorer |
 | 3 | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
 | 4 | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
@@ -151,7 +151,12 @@ Steps 0–5 are must-haves.
 - `make_wallets.py`: creates the shared, seller and attacker wallets in `wallets.json` (gitignored, never commit it).
 - `claim_usdc.py`: claims USDC into the shared wallet from the token faucet.
 - `send_test.py`: the Step 0 check; pays the seller 0.01 USDC and prints the proof.
-- Run everything with `.venv/bin/python` (Python 3.14, web3 8.0.0).
+- `seller.py` (port 8001): the shop. `GET /report/{topic}` → 402 quote; with an `X-PAYMENT: {"orderId","txHash"}` header it checks the receipt on chain and returns the report. Orders and used txHashes are kept in memory.
+- `gateway.py` (port 8000): hivemind. `POST /buy` runs Intent → Policy (token only) → Quote → pay → wait for receipt → proof → Audit. Tokens are a hardcoded dict (`tok-agent1-demo` → `agent1`). It pays whatever the quote says; Step 3 adds the checks where the comment marks them.
+- `db.py`: SQLite `hivemind.db` (gitignored), with an append-only `log` table and `log()`. `python db.py` prints the logbook.
+- `agent.py`: one agent; `python agent.py [weather|btc|coffee]` buys a report through hivemind and prints the explorer link.
+- Run everything with `.venv/bin/python` (Python 3.14, web3 8.0.0, fastapi, uvicorn, httpx).
+- Measured: one purchase takes about 4.4 s (about 1.5 s to sign and send, since `send()` makes 3 RPC calls, then about 2.6 s for the block).
 
 ## Demo
 

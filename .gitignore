@@ -7,3 +7,6 @@ __pycache__/
 
 # secret keys: never commit
 wallets.json
+
+# hivemind database (logbook, later budgets and holds)
+hivemind.db

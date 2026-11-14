@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from eth_account import Account
 from web3 import AsyncHTTPProvider, AsyncWeb3
+from web3.exceptions import TransactionNotFound
 from web3.logs import DISCARD
 from web3.middleware import ExtraDataToPOAMiddleware
 
@@ -161,6 +162,14 @@ async def claim_usdc(account):
 
 
 # --- Receipts --------------------------------------------------------------------
+
+async def get_receipt(tx_hash):
+    """Return the receipt if the tx is already in a block, else None. Doesn't wait."""
+    try:
+        return await w3.eth.get_transaction_receipt(tx_hash)
+    except TransactionNotFound:
+        return None
+
 
 async def wait_for_receipt(tx_hash, timeout=60):
     """Wait until the tx is in a block (~3.4 s), then return its receipt."""

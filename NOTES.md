@@ -17,3 +17,23 @@ Each transaction only changes the state of the stablecoin program; it doesn't se
 
 **First payment:** https://explorer.testnet3.goat.network/tx/0xab0efe589c605f739bdea6962f046138fae024e80f71430d5b4400f8076c9a8a
 (Nonce 1, because nonce 0 was the faucet claim. The nonce is the wallet's cheque number.)
+
+## Step 1: one full purchase through hivemind
+
+**What we built:** a shop (`seller.py`), hivemind (`gateway.py` + its logbook in `db.py`), and an agent (`agent.py`). One command, `python agent.py`, buys a report and prints the proof link.
+
+**The flow:** Intent → Policy → Quote → Settlement → Audit
+1. The agent asks hivemind to buy a report, showing its badge (token), the URL, a reason and a purchase ID. The agent never has the wallet key.
+2. Hivemind checks the badge.
+3. Hivemind asks the shop, and the shop replies **402 Payment Required**: price, where to pay, order number.
+4. Hivemind pays in USDC on GOAT, waits for the receipt, then goes back to the shop with the proof (order number + payment ID).
+5. The shop looks the payment up **on the chain itself**. It doesn't take hivemind's word for it. Then it hands over the report.
+6. Every stage is written in hivemind's logbook, which is only ever added to.
+
+**Already protected:** a fake badge is refused, and the shop won't accept the same payment twice for two different orders.
+
+**Not protected yet (on purpose, shown in Step 2):** hivemind pays whatever the shop asks, to whatever address it gives, with no budget. Steps 3–4 add those rules.
+
+**First purchase:** https://explorer.testnet3.goat.network/tx/0x421ac51badccafbeda643220df97d23b69cef9d54c775747be2397ce219f262c
+
+**In our own words:** _(to fill in: why does the shop check the chain instead of trusting hivemind?)_
