@@ -36,4 +36,24 @@ Each transaction only changes the state of the stablecoin program; it doesn't se
 
 **First purchase:** https://explorer.testnet3.goat.network/tx/0x421ac51badccafbeda643220df97d23b69cef9d54c775747be2397ce219f262c
 
-**In our own words:** _(to fill in: why does the shop check the chain instead of trusting hivemind?)_
+**In our own words: why the shop checks the chain instead of trusting hivemind:**
+The shop trusts the chain because it's the source of truth. Hivemind is just a payment layer in between, and its word doesn't have to be true. To the shop, hivemind is a stranger, and its proof is only a claim, like a screenshot of a bank transfer. The chain is a public record nobody can fake, so the shop checks it itself, the way you'd open your own bank app before handing over the bike.
+
+This splits the jobs: **the chain** proves a payment *really happened*; **hivemind** makes sure it was a payment we *meant to make*.
+
+## Step 2: the naive version loses money
+
+**The naive version:** no hivemind. Every agent holds the wallet key and pays on its own. It tries to stick to a team budget by reading "spent so far" from a shared file before paying.
+
+**Five attacks, five losses (all on the explorer):**
+| Attack | What happened |
+|---|---|
+| Overspending | Budget 0.05, 10 agents a split second apart. The first 9 saw "spent = 0" because nobody's payment had confirmed yet (the 10th saw 0.04, still "room left"). **Spent 0.10, 200% of the budget.** |
+| Traffic jam | 10 agents at the same instant all got cheque #13. **1 payment landed, 9 of 10 purchases failed.** |
+| Double paying | The slow shop took 12 s, the agent gave up at 10 s and bought again. **Paid twice for one report.** |
+| Wrong shop | The quote's address was swapped to the attacker's (`0xBE82…` vs the real `0xBe8F…`: nearly identical at a glance). **Attacker got 0.01, agent got nothing.** |
+| Stolen access | The thief copied one agent's credentials, which *are* the wallet key. **The whole wallet (0.83 USDC) went to the attacker in one payment.** |
+
+**Something we discovered:** GOAT's public server doesn't count payments still waiting to go into a block when you ask "what's my next cheque number?". Agents even 0.4 s apart got the same number. So the overspend demo uses agents with the jam fixed (they count cheque numbers themselves), to show that **even with the jam fixed, the budget still breaks.**
+
+**In our own words:** _(to fill in: why did the agents see "spent = 0" even though others had already paid?)_

@@ -117,27 +117,45 @@ async def usdc_balance(address):
 
 # --- Sending transactions -------------------------------------------------------
 
-async def send(account, call):
+async def send(account, call, nonce=None):
     """Sign and broadcast one token call (e.g. a transfer). Returns the tx hash.
 
     Steps: pick the cheque number (nonce), set fees, sign locally, broadcast.
     The secret key never leaves this computer; only the signature is sent.
 
-    NOTE: the nonce is asked from the chain each time. That is fine for one
-    payment at a time but breaks when many are sent at once (the "jam").
-    Step 4 replaces this with a payment queue that hands out nonces itself.
+    If `nonce` is None, the chain is asked for it. That is fine for one payment
+    at a time but breaks when many are sent at once (the "jam"): GOAT's public
+    RPC doesn't count not-yet-mined txs, so everyone gets the same number until
+    the next block. Step 4's payment queue passes its own nonce instead.
     """
-    nonce = await w3.eth.get_transaction_count(account.address, "pending")
+    tx = await call.build_transaction(await _nonce_and_fees(account, nonce))
+    return await _sign_and_broadcast(account, tx)
+
+
+async def send_btc(account, to, amount_btc):
+    """Send plain BTC (the fee money) to another address. Returns the tx hash."""
+    tx = await _nonce_and_fees(account)
+    tx.update({"to": to, "value": int(Decimal(str(amount_btc)) * 10**18), "gas": 21_000})
+    return await _sign_and_broadcast(account, tx)
+
+
+async def _nonce_and_fees(account, nonce=None):
+    """The cheque number and fee settings for this account's next tx."""
+    if nonce is None:
+        nonce = await w3.eth.get_transaction_count(account.address, "pending")
     priority_fee = await w3.eth.max_priority_fee
     base_fee = (await w3.eth.get_block("latest"))["baseFeePerGas"]
-
-    tx = await call.build_transaction({
+    return {
         "from": account.address,
         "nonce": nonce,
         "chainId": CHAIN_ID,
         "maxPriorityFeePerGas": priority_fee,
         "maxFeePerGas": 2 * base_fee + priority_fee,  # room if the base fee rises
-    })
+    }
+
+
+async def _sign_and_broadcast(account, tx):
+    """Sign locally, work out the tx hash, then broadcast the signed bytes."""
     signed = account.sign_transaction(tx)
     # The hash is known before broadcasting (Step 5 relies on this).
     tx_hash = "0x" + signed.hash.hex().removeprefix("0x")
@@ -145,9 +163,9 @@ async def send(account, call):
     return tx_hash
 
 
-async def pay_usdc(account, to, amount):
+async def pay_usdc(account, to, amount, nonce=None):
     """Ask the USDC program to move `amount` USDC from `account` to `to`."""
-    return await send(account, usdc.functions.transfer(to, usdc_to_units(amount)))
+    return await send(account, usdc.functions.transfer(to, usdc_to_units(amount)), nonce)
 
 
 async def can_claim_usdc(address):

@@ -109,6 +109,7 @@ Who pays whom:
 - Explorer: https://explorer.testnet3.goat.network
 - EVM-compatible; gas is paid in BTC; web3.py works. One block about every 3.4 s (measured). Fees are tiny: a USDC transfer costs about 0.000000007 BTC (~52k gas).
 - **web3 quirk:** GOAT blocks have 33 bytes of extraData, so web3 needs `ExtraDataToPOAMiddleware` (already set up in `chain.py`).
+- **Nonce behaviour (measured in Step 2):** the public RPC's `get_transaction_count(addr, "pending")` does **not** count txs waiting in the mempool. Everyone gets the same nonce until the next block, even when requests are 0.4 s apart. Two identical txs with the same nonce → `already known` (the duplicate is dropped). A nonce already used → `nonce too low`. So the payment queue (Step 4) must read the nonce once and count locally, never ask per payment.
 - **Payments are in stablecoins, as the hackathon rules require.** Official tokens:
   - USDC: `0x29D1Ee93e9ecf6E50F309f498e40a6b42D352Fa1` (6 decimals). This is the one we pay in.
   - USDT: `0xdcE0Af57E8F2CE957b3838Cd2A2F3F3677965Dd3` (6 decimals). Not used yet.
@@ -137,7 +138,7 @@ Who pays whom:
 |---|---|---|
 | 0 ✅ | Repo + MIT licence, RPC client, wallets funded from the faucet, explorer link helper | One test USDC transfer shows on the explorer |
 | 1 ✅ | Seller (normal mode), simple gateway, one agent | One command runs Intent → Audit and prints the tx link |
-| 2 | Naive version + attack scripts (can run in parallel with 3–4) | Each attack visibly loses money or jams on the explorer |
+| 2 ✅ | Naive version + attack scripts (can run in parallel with 3–4) | Each attack visibly loses money or jams on the explorer |
 | 3 | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
 | 4 | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
 | 5 | Crash recovery + reconciliation | `kill -9` mid-payment, then restart: no double pay, and the ledger matches the chain |
@@ -155,6 +156,13 @@ Steps 0–5 are must-haves.
 - `gateway.py` (port 8000): hivemind. `POST /buy` runs Intent → Policy (token only) → Quote → pay → wait for receipt → proof → Audit. Tokens are a hardcoded dict (`tok-agent1-demo` → `agent1`). It pays whatever the quote says; Step 3 adds the checks where the comment marks them.
 - `db.py`: SQLite `hivemind.db` (gitignored), with an append-only `log` table and `log()`. `python db.py` prints the logbook.
 - `agent.py`: one agent; `python agent.py [weather|btc|coffee]` buys a report through hivemind and prints the explorer link.
+- `seller.py` demo modes are URLs: `/slow/report/{topic}` (delivers 8 s after checking the payment) and `/evil/report/{topic}` (quote's payTo swapped to the attacker; the shop still expects payment to itself, so it refuses the proof).
+- `chain.py` also has `send_btc()`, and `send()` / `pay_usdc()` take an optional `nonce` (None = ask the chain).
+- `make_wallets.py` is add-only now: it adds missing roles and never replaces existing ones. Roles: shared, seller, attacker, **naive**.
+- `naive_agent.py`: the naive version. Every agent holds the `naive` wallet key; `naive_buy()` does quote → budget check against `naive_budget.json` → pay → wait → add to spent → proof. `local_nonces=True` (with `start_local_nonces()`) fixes the jam so the overspend demo isolates the budget race.
+- `fund_naive.py`: tops the naive wallet up to 1 USDC + 0.000002 BTC from shared. Re-run after `attacks.steal`.
+- `attacks/` (run as `python -m attacks.<name>`): `overspend`, `jam`, `double_pay`, `redirect`, `steal`. Each prints a verdict with explorer links. `--target hivemind` is a placeholder until Steps 3–4.
+- **Reconciliation note for Step 5:** `fund_naive.py` and test scripts move money out of the shared wallet outside hivemind's ledger. Reconcile from a recorded starting balance, or log those transfers.
 - Run everything with `.venv/bin/python` (Python 3.14, web3 8.0.0, fastapi, uvicorn, httpx).
 - Measured: one purchase takes about 4.4 s (about 1.5 s to sign and send, since `send()` makes 3 RPC calls, then about 2.6 s for the block).
 

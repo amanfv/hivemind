@@ -10,3 +10,6 @@ wallets.json
 
 # hivemind database (logbook, later budgets and holds)
 hivemind.db
+
+# naive version scratch file
+naive_budget.json
