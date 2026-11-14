@@ -23,7 +23,7 @@ from decimal import Decimal
 import httpx
 import uvicorn
 from fastapi import FastAPI, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 import chain
@@ -31,7 +31,7 @@ import payqueue
 import policy
 import purchases
 import recovery
-from db import log
+from db import conn, log
 
 PORT = 8000
 http = httpx.AsyncClient(timeout=30)
@@ -47,7 +47,10 @@ async def lifespan(app):
     await recovery.recover()
     nonce = await payqueue.start()
     print(f"[hivemind] shared wallet {payqueue.WALLET.address}, next cheque number {nonce}")
+    print(f"[hivemind] dashboard: http://127.0.0.1:{PORT}/dashboard")
+    refresher = asyncio.create_task(_refresh_wallets())
     yield
+    refresher.cancel()
 
 
 app = FastAPI(title="hivemind", lifespan=lifespan)
@@ -192,6 +195,72 @@ async def _purchase(agent, req):
     log("delivered", f"got {req.url}", agent=agent, purchase_id=pid, tx_hash=tx_hash, explorer=link)
     return 200, {"status": "ok", "data": r.json(), "price": str(price),
                  "txHash": tx_hash, "explorer": link}, "done"
+
+
+# --- Dashboard ------------------------------------------------------------------------
+# A read-mostly page for the demo. Hivemind only listens on 127.0.0.1, so only
+# this computer can reach it (including the agent on/off buttons).
+
+WALLET_ROLES = ["shared", "naive", "attacker", "seller"]
+wallets = {}  # role -> {"address", "usdc", "btc"}; refreshed in the background
+
+
+async def _refresh_wallets():
+    """Read wallet balances from the chain every few seconds (not on every page poll)."""
+    while True:
+        for role in WALLET_ROLES:
+            try:
+                addr = chain.load_address(role)
+                wallets[role] = {"address": addr, "usdc": str(await chain.usdc_balance(addr)),
+                                 "btc": str(await chain.btc_balance(addr))}
+            except Exception:
+                pass  # keep the last known value if the RPC hiccups
+        await asyncio.sleep(4)
+
+
+@app.get("/dashboard")
+async def dashboard():
+    with open("dashboard.html") as f:
+        return HTMLResponse(f.read())
+
+
+@app.get("/status")
+async def status():
+    u = chain.units_to_usdc
+
+    def total(where, *args):
+        return conn.execute(f"SELECT COALESCE(SUM(amount_units), 0) FROM holds WHERE {where}",
+                            args).fetchone()[0]
+
+    budget = conn.execute("SELECT budget_units FROM team WHERE id = 1").fetchone()
+    agents = [{"name": a["name"], "on": bool(a["enabled"]), "limit": str(u(a["limit_units"])),
+               "spent": str(u(total("status = 'spent' AND agent = ?", a["name"]))),
+               "held": str(u(total("status = 'held' AND agent = ?", a["name"])))}
+              for a in conn.execute("SELECT * FROM agents ORDER BY length(name), name")]
+    rows = conn.execute("SELECT id, ts, agent, purchase_id, stage, message, tx_hash, explorer, detail"
+                        " FROM log ORDER BY id DESC LIMIT 250").fetchall()
+    return {
+        "budget": str(u(budget[0] if budget else 0)),
+        "spent": str(u(total("status = 'spent'"))),
+        "held": str(u(total("status = 'held'"))),
+        "agents": agents,
+        "wallets": wallets,
+        "explorer": chain.EXPLORER,
+        "nextCheque": payqueue.peek_nonce(),
+        "log": [dict(r) for r in rows],
+    }
+
+
+@app.post("/dashboard/agents/{name}/{state}")
+async def switch_agent(name: str, state: str):
+    """The off switch, as a button on the dashboard."""
+    if state not in ("on", "off"):
+        return JSONResponse(status_code=400, content={"error": "state must be on or off"})
+    cur = conn.execute("UPDATE agents SET enabled = ? WHERE name = ?", (1 if state == "on" else 0, name))
+    if cur.rowcount == 0:
+        return JSONResponse(status_code=404, content={"error": f"no agent called {name}"})
+    log("policy", f"operator switched {name}'s pass {state.upper()} (dashboard)", agent=name)
+    return {"name": name, "on": state == "on"}
 
 
 # --- Test switch (for tests/gap_fill.py only) ------------------------------------------

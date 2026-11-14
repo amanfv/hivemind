@@ -142,7 +142,7 @@ Who pays whom:
 | 3 ✅ | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
 | 4 ✅ | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
 | 5 ✅ | Crash recovery + reconciliation | `kill -9` mid-payment, then restart: no double pay, and the ledger matches the chain |
-| 6 | Global-lock flag, benchmark chart, dashboard | The chart shows lazy lock vs hivemind, both correct |
+| 6 (dashboard ✅; benchmark deferred until after review) | Global-lock flag, benchmark chart, dashboard | The chart shows lazy lock vs hivemind, both correct |
 | 7 | Write-ups, demo script, backup video | Submitted before 10 AM Sunday |
 
 Steps 0–5 are must-haves.
@@ -178,6 +178,7 @@ Steps 0–5 are must-haves.
 - `fund_naive.py`: tops the naive wallet up to 1 USDC + 0.000002 BTC from shared. Re-run after `attacks.steal`.
 - `attacks/` (run as `python -m attacks.<name>`): `overspend`, `jam`, `double_pay`, `redirect`, `steal`. Each prints a verdict with explorer links. `--target hivemind` is a placeholder until Steps 3–4.
 - **Reconciliation note for Step 5:** `fund_naive.py` and test scripts move money out of the shared wallet outside hivemind's ledger. Reconcile from a recorded starting balance, or log those transfers.
+- **Dashboard:** `http://127.0.0.1:8000/dashboard`, served by the gateway (`dashboard.html`, plain HTML/JS, no libraries). It polls `GET /status` every second (budget/spent/held, agents, the last 250 log rows, wallet balances). Wallet balances (shared, naive, attacker, seller) are refreshed by a background task every 4 s, not per poll. `POST /dashboard/agents/{name}/on|off` is the off switch as a button (unauthenticated; the gateway listens only on 127.0.0.1). The ledger shows outcomes as stamps (PAID, REFUSED, NOT PAID TWICE, PASS OFF/ON, PROBLEM, RECOVERED, HOLE FILLED); "Show every step" reveals intermediate stages. Each section re-renders only when its data changes (so buttons stay clickable). The design is security paper + rubber stamps, light, for projectors.
 - Run everything with `.venv/bin/python` (Python 3.14, web3 8.0.0, fastapi, uvicorn, httpx).
 - Measured: one purchase takes about 4.4 s (about 1.5 s to sign and send, since `send()` makes 3 RPC calls, then about 2.6 s for the block).
 

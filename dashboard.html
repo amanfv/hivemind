@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hivemind control room</title>
+<style>
+  :root {
+    --paper: #EEF3EC;        /* security paper */
+    --paper-deep: #E2EAE3;
+    --rule: #C6D3CB;         /* ledger lines */
+    --ink: #1F2A44;          /* fountain-pen navy */
+    --ink-soft: #5B667D;
+    --paid: #2E6B47;         /* approval stamp */
+    --refused: #B3261E;      /* refusal stamp */
+    --held: #A86B12;         /* money set aside */
+    --info: #2F5D8A;         /* recognised retry / recovery */
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    /* faint guilloche-like security pattern */
+    background-image:
+      repeating-linear-gradient(45deg, rgba(31,42,68,.025) 0 1px, transparent 1px 7px),
+      repeating-linear-gradient(-45deg, rgba(31,42,68,.025) 0 1px, transparent 1px 7px);
+    color: var(--ink);
+    font: 16px/1.45 var(--sans);
+    min-height: 100vh;
+  }
+  a { color: var(--info); }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+
+  .page { max-width: 1600px; margin: 0 auto; padding: 20px 28px 32px; }
+
+  header { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+  .wordmark { font: 700 34px/1 var(--serif); letter-spacing: -0.01em; margin: 0; }
+  .sub { color: var(--ink-soft); font-size: 15px; }
+  .live { margin-left: auto; font-size: 14px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--paid); }
+  .live.down .dot { background: var(--refused); }
+
+  /* --- Budget: the cheque line ------------------------------------------------ */
+  .budget { margin: 22px 0 18px; }
+  .figures { display: flex; gap: 44px; flex-wrap: wrap; align-items: baseline; }
+  .fig { display: flex; flex-direction: column; }
+  .fig b { font: 600 44px/1.05 var(--serif); font-variant-numeric: tabular-nums lining-nums; }
+  .fig span { color: var(--ink-soft); font-size: 15px; }
+  .fig.held b { color: var(--held); }
+  .fig.total { margin-left: auto; text-align: right; }
+  .bar { position: relative; height: 22px; margin-top: 12px; border: 1.5px solid var(--ink); background: #F7FAF6; display: flex; overflow: hidden; }
+  .bar i { display: block; height: 100%; transition: width .4s ease; }
+  .bar .spent { background: var(--ink); }
+  .bar .held { background: repeating-linear-gradient(45deg, var(--held) 0 6px, #C9932F 6px 12px); }
+
+  /* --- Main grid --------------------------------------------------------------- */
+  .grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 28px; }
+  h2 { font: 600 20px/1.2 var(--serif); margin: 0 0 8px; }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--ink); padding-bottom: 6px; margin-bottom: 4px; }
+  .toggle { font-size: 14px; color: var(--ink-soft); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+  /* --- Ledger: the live log ------------------------------------------------------ */
+  .ledger { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - 260px); overflow-y: auto; }
+  .entry { display: grid; grid-template-columns: 66px 128px 1fr; gap: 14px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--rule); }
+  .entry.step { padding: 3px 4px; color: var(--ink-soft); font-size: 14px; }
+  .entry.step .stamp { visibility: hidden; height: 0; }
+  .time { font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: 14px; }
+  .what b { font-weight: 600; }
+  .why { color: var(--ink-soft); font-size: 14px; }
+  .tx { font: 13px var(--mono); }
+  .entry.new { animation: arrive 1.6s ease-out; }
+  @keyframes arrive { from { background: rgba(168,107,18,.18); } to { background: transparent; } }
+
+  /* The one bold thing: rubber stamps */
+  .stamp {
+    justify-self: start;
+    font: 700 13px/1 var(--sans); letter-spacing: .06em;
+    padding: 6px 8px 5px; border: 2.5px solid currentColor; border-radius: 4px;
+    transform: rotate(-4deg); white-space: nowrap;
+    mix-blend-mode: multiply; opacity: .92;
+  }
+  .stamp.ok { color: var(--paid); }
+  .stamp.bad { color: var(--refused); transform: rotate(3deg); }
+  .stamp.warn { color: var(--held); }
+  .stamp.info { color: var(--info); transform: rotate(-2deg); }
+  .empty { padding: 24px 4px; color: var(--ink-soft); }
+
+  /* --- Agents ----------------------------------------------------------------------- */
+  .agents { list-style: none; margin: 0 0 22px; padding: 0; column-gap: 18px; }
+  @media (min-width: 1400px) { .agents { columns: 2; } }
+  .agent { break-inside: avoid; display: grid; grid-template-columns: 70px minmax(60px, 1fr) auto; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--rule); font-size: 14px; }
+  .agent.off .name { text-decoration: line-through; color: var(--refused); }
+  .meter { height: 8px; border: 1px solid var(--ink-soft); display: flex; background: #F7FAF6; }
+  .meter i { display: block; height: 100%; }
+  .meter .spent { background: var(--ink); }
+  .meter .held { background: var(--held); }
+  .agent button { font: 12px var(--sans); color: var(--ink); background: transparent; border: 1px solid var(--ink-soft); border-radius: 3px; padding: 2px 7px; cursor: pointer; }
+  .agent.off button { color: var(--paid); border-color: var(--paid); }
+  .agent button:hover { background: var(--paper-deep); }
+
+  /* --- Wallets ---------------------------------------------------------------------- */
+  .wallets { list-style: none; margin: 0; padding: 0; }
+  .wallet { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+  .wallet .label { font-weight: 600; }
+  .wallet .addr { grid-column: 1; color: var(--ink-soft); font: 13px var(--mono); }
+  .wallet .usdc { grid-row: 1 / span 2; grid-column: 2; align-self: center; text-align: right; font: 600 26px/1 var(--serif); font-variant-numeric: tabular-nums lining-nums; }
+  .wallet .usdc small { font: 13px var(--sans); color: var(--ink-soft); display: block; margin-top: 3px; }
+  .wallet.attacker .usdc { color: var(--refused); }
+  .flash { animation: flash 1.4s ease-out; }
+  @keyframes flash { from { background: rgba(179,38,30,.16); } to { background: transparent; } }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .ledger { max-height: none; }
+    .entry { grid-template-columns: 64px 1fr; }
+    .entry .stamp { grid-column: 2; }
+    .entry .what { grid-column: 1 / -1; }
+    .fig b { font-size: 32px; }
+    .fig.total { margin-left: 0; text-align: left; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .entry.new, .flash { animation: none; }
+    .bar i { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1 class="wordmark">hivemind</h1>
+    <span class="sub" id="sub">Shared wallet on GOAT Testnet3</span>
+    <span class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></span>
+  </header>
+
+  <section class="budget" aria-label="Team budget">
+    <div class="figures">
+      <div class="fig"><b id="spent">–</b><span>spent</span></div>
+      <div class="fig held"><b id="held">–</b><span>set aside right now</span></div>
+      <div class="fig"><b id="left">–</b><span>left to spend</span></div>
+      <div class="fig total"><b id="budget">–</b><span>team budget, USDC</span></div>
+    </div>
+    <div class="bar" role="img" id="bar" aria-label="Budget used"><i class="spent" id="bar-spent"></i><i class="held" id="bar-held"></i></div>
+  </section>
+
+  <div class="grid">
+    <section aria-label="Live ledger">
+      <div class="panel-head">
+        <h2>Ledger</h2>
+        <label class="toggle"><input type="checkbox" id="every-step"> Show every step</label>
+      </div>
+      <ul class="ledger" id="ledger"><li class="empty">No purchases yet. Run an agent or an attack and they appear here.</li></ul>
+    </section>
+
+    <aside>
+      <div class="panel-head"><h2>Agents</h2><span class="why">spent and held against each limit</span></div>
+      <ul class="agents" id="agents"></ul>
+
+      <div class="panel-head"><h2>Wallets</h2><span class="why">balances on chain, USDC</span></div>
+      <ul class="wallets" id="wallets"></ul>
+    </aside>
+  </div>
+</div>
+
+<script>
+const WALLET_LABELS = {
+  shared: "Team wallet (hivemind)",
+  naive: "Naive version's wallet",
+  attacker: "Attacker",
+  seller: "The shop",
+};
+const $ = (id) => document.getElementById(id);
+let lastSeenId = null;
+let lastWallets = {};
+let known = {};  // address (lowercase) -> role, for readable messages
+const everyStep = $("every-step");
+try { everyStep.checked = localStorage.getItem("everyStep") === "1"; } catch (e) {}
+everyStep.addEventListener("change", () => {
+  try { localStorage.setItem("everyStep", everyStep.checked ? "1" : "0"); } catch (e) {}
+  if (lastData) render(lastData, false);
+});
+
+const fmt = (x) => Number(x).toFixed(2);
+const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "";
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+function nameAddresses(text) {
+  return esc(text).replace(/0x[0-9a-fA-F]{40}/g, (a) => {
+    const role = known[a.toLowerCase()];
+    return role ? `${short(a)} (${role === "seller" ? "the shop" : role === "shared" ? "team wallet" : role})` : short(a);
+  });
+}
+
+function describeUrl(url) {
+  if (!url) return "something";
+  const m = url.match(/\/(evil\/|slow\/)?report\/([^/?#]+)/);
+  if (!m) return url;
+  const thing = `the ${m[2]} report`;
+  if (m[1] === "evil/") return `${thing} (from a tampered link)`;
+  if (m[1] === "slow/") return `${thing} (slow shop)`;
+  return thing;
+}
+
+function time(ts) {
+  return new Date(ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"});
+}
+
+// Turn raw logbook rows into ledger entries a judge can read.
+function entries(log) {
+  const ctx = {};  // purchase_id -> {url, reason, price}
+  for (const r of [...log].reverse()) {
+    if (!r.purchase_id) continue;
+    const c = ctx[r.purchase_id] ||= {};
+    if (r.stage === "intent" && r.detail) {
+      try { const d = JSON.parse(r.detail); c.url = d.url; c.reason = d.reason; } catch (e) {}
+    }
+    const price = r.message.match(/^ALLOW gate 2: ([\d.]+) USDC/);
+    if (price) c.price = price[1];
+  }
+  return log.map((r) => {
+    const c = ctx[r.purchase_id] || {};
+    const who = esc(r.agent || "unknown");
+    const what = describeUrl(c.url);
+    let stamp = null, tone = "", main = "", why = "";
+    if (r.stage === "delivered") {
+      stamp = "PAID"; tone = "ok";
+      main = `<b>${who}</b> bought ${esc(what)}${c.price ? ` for ${c.price} USDC` : ""}`;
+      why = c.reason ? `Reason given: ${esc(c.reason)}` : "";
+    } else if (r.stage === "policy" && r.message.startsWith("DENY")) {
+      stamp = "REFUSED"; tone = "bad";
+      main = `<b>${who}</b> wanted ${esc(what)}`;
+      why = nameAddresses(r.message.replace(/^DENY:\s*/, ""));
+    } else if (r.stage === "policy" && r.message.startsWith("operator")) {
+      const off = r.message.includes("OFF");
+      stamp = off ? "PASS OFF" : "PASS ON"; tone = off ? "bad" : "ok";
+      main = `Operator switched <b>${who}</b>'s pass ${off ? "off" : "on"}`;
+    } else if (r.stage === "dedupe") {
+      stamp = "NOT PAID TWICE"; tone = "info";
+      main = `<b>${who}</b> retried ${esc(what)}`;
+      why = "Same purchase ID: returned the first result instead of paying again";
+    } else if (r.stage === "error") {
+      stamp = "PROBLEM"; tone = "warn";
+      main = `<b>${who}</b>: ${nameAddresses(r.message)}`;
+    } else if (r.stage === "recovery" && /^done:/.test(r.message) && !/[1-9]/.test(r.message)) {
+      main = "Restart check: nothing was left half-done";  // routine; shown only with every step
+    } else if (r.stage === "recovery") {
+      stamp = "RECOVERED"; tone = "info";
+      main = nameAddresses(r.message);
+    } else if (r.stage === "gap_fill") {
+      stamp = "HOLE FILLED"; tone = "info";
+      main = nameAddresses(r.message);
+    } else {
+      main = `${who}, ${r.stage}: ${nameAddresses(r.message)}`;
+    }
+    return {id: r.id, ts: r.ts, stamp, tone, main, why, tx: r.tx_hash, link: r.explorer};
+  });
+}
+
+let ledgerKey = "", agentsKey = "", walletsKey = "";  // re-draw a section only when it changed
+
+function renderLedger(log, animate) {
+  const list = entries(log).filter((e) => e.stamp || everyStep.checked).slice(0, 120);
+  if (!list.length) return;
+  const key = everyStep.checked + ":" + list.map((e) => e.id).join(",");
+  if (key === ledgerKey) return;
+  ledgerKey = key;
+  const html = list.map((e) => `
+    <li class="entry ${e.stamp ? "" : "step"} ${animate && lastSeenId !== null && e.id > lastSeenId ? "new" : ""}">
+      <span class="time">${time(e.ts)}</span>
+      <span class="stamp ${e.tone}">${e.stamp || ""}</span>
+      <span class="what">${e.main}${e.why ? `<div class="why">${e.why}</div>` : ""}${
+        e.link && e.stamp ? `<div class="why">Payment <a class="tx" href="${esc(e.link)}" target="_blank" rel="noopener">${short(e.tx)}</a></div>` : ""}</span>
+    </li>`).join("");
+  $("ledger").innerHTML = html;
+}
+
+function renderAgents(agents) {
+  const key = JSON.stringify(agents);
+  if (key === agentsKey) return;
+  agentsKey = key;
+  $("agents").innerHTML = agents.map((a) => {
+    const lim = Number(a.limit) || 1;
+    return `<li class="agent ${a.on ? "" : "off"}">
+      <span class="name">${esc(a.name)}</span>
+      <span class="meter" title="${a.spent} spent, ${a.held} held of ${a.limit} USDC">
+        <i class="spent" style="width:${Math.min(100, a.spent / lim * 100)}%"></i>
+        <i class="held" style="width:${Math.min(100, a.held / lim * 100)}%"></i>
+      </span>
+      <button data-agent="${esc(a.name)}" data-to="${a.on ? "off" : "on"}">${a.on ? "Switch off" : "Switch on"}</button>
+    </li>`;
+  }).join("");
+}
+
+function renderWallets(wallets) {
+  const key = JSON.stringify(wallets);
+  if (key === walletsKey) return;
+  walletsKey = key;
+  $("wallets").innerHTML = Object.keys(WALLET_LABELS).filter((r) => wallets[r]).map((r) => {
+    const w = wallets[r];
+    const changed = lastWallets[r] !== undefined && lastWallets[r] !== w.usdc;
+    return `<li class="wallet ${r} ${changed ? "flash" : ""}">
+      <span class="label">${WALLET_LABELS[r]}</span>
+      <span class="addr">${short(w.address)}</span>
+      <span class="usdc">${fmt(w.usdc)}${r === "shared" ? `<small>${Number(w.btc).toFixed(7)} BTC for fees</small>` : ""}</span>
+    </li>`;
+  }).join("");
+  for (const r in wallets) lastWallets[r] = wallets[r].usdc;
+}
+
+let lastData = null;
+function render(d, animate = true) {
+  lastData = d;
+  known = {};
+  for (const [role, w] of Object.entries(d.wallets || {})) known[w.address.toLowerCase()] = role;
+
+  const budget = Number(d.budget), spent = Number(d.spent), held = Number(d.held);
+  $("budget").textContent = fmt(budget);
+  $("spent").textContent = fmt(spent);
+  $("held").textContent = fmt(held);
+  $("left").textContent = fmt(Math.max(0, budget - spent - held));
+  $("bar-spent").style.width = budget ? `${Math.min(100, spent / budget * 100)}%` : "0";
+  $("bar-held").style.width = budget ? `${Math.min(100, held / budget * 100)}%` : "0";
+  $("bar").setAttribute("aria-label", `${fmt(spent)} spent and ${fmt(held)} held of ${fmt(budget)} USDC`);
+
+  const shared = d.wallets && d.wallets.shared;
+  $("sub").innerHTML = shared
+    ? `Shared wallet <a href="${esc(d.explorer)}/address/${esc(shared.address)}" target="_blank" rel="noopener">${short(shared.address)}</a> on GOAT Testnet3. Next cheque #${d.nextCheque}`
+    : "Shared wallet on GOAT Testnet3";
+
+  renderLedger(d.log, animate);
+  renderAgents(d.agents);
+  if (animate) renderWallets(d.wallets || {});
+  if (d.log.length) lastSeenId = Math.max(lastSeenId ?? 0, d.log[0].id);
+}
+
+$("agents").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-agent]");
+  if (!b) return;
+  b.disabled = true;
+  await fetch(`/dashboard/agents/${encodeURIComponent(b.dataset.agent)}/${b.dataset.to}`, {method: "POST"});
+  poll();
+});
+
+async function poll() {
+  try {
+    const r = await fetch("/status", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+    $("live").classList.remove("down");
+    $("live-text").textContent = "Live";
+  } catch (e) {
+    $("live").classList.add("down");
+    $("live-text").textContent = "Can't reach hivemind. Is gateway.py running?";
+  }
+}
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>
