@@ -1,3 +1,9 @@
 # claude
 .claude
 CLAUDE.md
+# python
+.venv/
+__pycache__/
+
+# secret keys: never commit
+wallets.json
