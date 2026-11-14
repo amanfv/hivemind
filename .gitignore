@@ -1,15 +1,21 @@
 # claude
 .claude
 
+# macos
+.DS_Store
+
 # python
 .venv/
 __pycache__/
 
 # secret keys: never commit
 wallets.json
+.env
 
-# hivemind database (logbook, later budgets and holds)
-hivemind.db
+# databases
+*.db
+*.db-shm
+*.db-wal
 
 # naive version scratch file
 naive_budget.json
