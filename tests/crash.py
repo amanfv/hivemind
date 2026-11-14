@@ -17,7 +17,6 @@ the chain to the last unit (USDC and BTC fees).
 
 import asyncio
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -56,7 +55,7 @@ async def start_gateway(extra_env=None):
 
 
 def kill9(proc):
-    os.kill(proc.pid, signal.SIGKILL)  # pull the power cord: no cleanup at all
+    proc.kill()  # pull the power cord: no cleanup at all (SIGKILL; TerminateProcess on Windows)
     proc.wait()
 
 

@@ -13,7 +13,6 @@ stuck forever waiting for it.
 
 import asyncio
 import os
-import signal
 
 import chain
 from db import conn, log, now
@@ -101,7 +100,7 @@ async def pay(hold_id, to, amount, agent=None, purchase_id=None, _retried=False)
     tx_hash, raw_tx = await chain.sign_usdc_transfer(WALLET, to, amount, nonce)
     _save(nonce, tx_hash, raw_tx, "purchase", hold_id, chain.usdc_to_units(amount))  # photocopy FIRST
     if CRASH_AFTER_SAVE:
-        os.kill(os.getpid(), signal.SIGKILL)  # test: die between photocopy and sending
+        os._exit(1)  # test: die between photocopy and sending (instant, no cleanup, any OS)
     try:
         await _send_saved(tx_hash, raw_tx, nonce)
         return tx_hash
