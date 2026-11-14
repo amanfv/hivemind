@@ -139,7 +139,7 @@ Who pays whom:
 | 0 ✅ | Repo + MIT licence, RPC client, wallets funded from the faucet, explorer link helper | One test USDC transfer shows on the explorer |
 | 1 ✅ | Seller (normal mode), simple gateway, one agent | One command runs Intent → Audit and prints the tx link |
 | 2 ✅ | Naive version + attack scripts (can run in parallel with 3–4) | Each attack visibly loses money or jams on the explorer |
-| 3 | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
+| 3 ✅ | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
 | 4 | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
 | 5 | Crash recovery + reconciliation | `kill -9` mid-payment, then restart: no double pay, and the ledger matches the chain |
 | 6 | Global-lock flag, benchmark chart, dashboard | The chart shows lazy lock vs hivemind, both correct |
@@ -154,8 +154,12 @@ Steps 0–5 are must-haves.
 - `send_test.py`: the Step 0 check; pays the seller 0.01 USDC and prints the proof.
 - `seller.py` (port 8001): the shop. `GET /report/{topic}` → 402 quote; with an `X-PAYMENT: {"orderId","txHash"}` header it checks the receipt on chain and returns the report. Orders and used txHashes are kept in memory.
 - `gateway.py` (port 8000): hivemind. `POST /buy` runs Intent → Policy (token only) → Quote → pay → wait for receipt → proof → Audit. Tokens are a hardcoded dict (`tok-agent1-demo` → `agent1`). It pays whatever the quote says; Step 3 adds the checks where the comment marks them.
-- `db.py`: SQLite `hivemind.db` (gitignored), with an append-only `log` table and `log()`. `python db.py` prints the logbook.
-- `agent.py`: one agent; `python agent.py [weather|btc|coffee]` buys a report through hivemind and prints the explorer link.
+- `db.py`: SQLite `hivemind.db` (gitignored, WAL mode, autocommit; transactions are opened by hand). Tables: `log` (append-only), `team` (budget), `agents` (sha256 of the pass, limit, enabled), `sellers` (origin → approved pay_to, price cap), `holds` (held → spent/released). Money is stored in USDC units (integers). `python db.py` prints the logbook.
+- `policy.py`: gate 1 `check_pass()` + `check_seller()`; gate 2 `check_quote()` (official token, payTo == approved, price ≤ cap, not expired); `place_hold()` (BEGIN IMMEDIATE, re-checks the off switch, sums holds for team and agent, no await), `mark_spent()`, `release()`. Rules raise `Denied(reason)`.
+- `admin.py`: `setup` (10 passes → `tokens.json` (gitignored), limit 0.03 each; the shop approved with cap 0.05), `budget X` (new period: clears holds, refuses while any are in flight), `disable/enable agentN`, `status`.
+- `gateway.py`: Intent → gate 1 → quote → gate 2 + hold → pay → confirm (spent / released) → proof → audit. It reads the nonce once at startup and counts locally (`take_nonce()`); on `nonce too low` it re-syncs once (e.g. after `fund_naive.py` used the wallet). A missing receipt keeps the hold (Step 5 recovers it). No BTC-for-gas check yet.
+- `agent.py`: one agent; `python agent.py [weather|btc|coffee]` buys a report through hivemind as agent1 and prints the explorer link.
+- Attacks with `--target hivemind`: `overspend` (10 at the same instant, budget 0.05 → exactly 5 paid), `redirect` (refused at gate 2), `steal` (thief has agent3's pass: evil quote refused, 3 of 6 paid then over the limit, off switch, agent1 unaffected). `double_pay` and `jam` still say Step 4.
 - `seller.py` demo modes are URLs: `/slow/report/{topic}` (delivers 8 s after checking the payment) and `/evil/report/{topic}` (quote's payTo swapped to the attacker; the shop still expects payment to itself, so it refuses the proof).
 - `chain.py` also has `send_btc()`, and `send()` / `pay_usdc()` take an optional `nonce` (None = ask the chain).
 - `make_wallets.py` is add-only now: it adds missing roles and never replaces existing ones. Roles: shared, seller, attacker, **naive**.

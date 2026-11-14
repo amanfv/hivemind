@@ -14,8 +14,11 @@ import asyncio
 import time
 from decimal import Decimal
 
+import httpx
+
+import admin
 import naive_agent
-from attacks.common import SHOP, balances, headline, target_from_args, verdict
+from attacks.common import SHOP, balances, headline, hivemind_buy, target_from_args, verdict
 
 AGENTS = 10
 BUDGET = Decimal("0.05")
@@ -60,7 +63,36 @@ async def run_naive():
     ])
 
 
+async def run_hivemind():
+    """Same attack through hivemind, and harder: all 10 at the SAME instant."""
+    admin.set_budget(BUDGET)
+    before = await balances("shared")
+
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*(
+            hivemind_buy(client, f"agent{i + 1}", f"{SHOP}/report/weather") for i in range(AGENTS)
+        ))
+
+    print("\nResults (all 10 agents asked at the same instant):")
+    for r in results:
+        status = "got report" if r["ok"] else f"REFUSED: {r['error']}"
+        print(f"  {r['agent']:<8} {status}  {r['explorer'] or ''}")
+
+    after = await balances("shared")
+    spent = before["shared"] - after["shared"]
+    paid = sum(r["ok"] for r in results)
+    verdict([
+        f"Team budget:        {BUDGET} USDC",
+        f"Actually spent:     {spent} USDC  ({paid} payments on chain)",
+        f"{'BLOCKED' if spent <= BUDGET else 'OVERSPENT'}: {AGENTS - paid} purchases refused, "
+        f"spent {spent / BUDGET:.0%} of budget",
+        "Why: each purchase set its money aside (a hold) in one locked step before paying,",
+        "     so the next agent's check already counted it.",
+    ])
+
+
 if __name__ == "__main__":
-    target_from_args(__doc__, hivemind_step=3)
-    headline("Overspending", f"{AGENTS} agents, budget {BUDGET} USDC, each buys a 0.01 report")
-    asyncio.run(run_naive())
+    target = target_from_args(__doc__, hivemind_step=3, hivemind_ready=True)
+    headline(f"Overspending vs {target}",
+             f"{AGENTS} agents, budget {BUDGET} USDC, each buys a 0.01 report")
+    asyncio.run(run_naive() if target == "naive" else run_hivemind())

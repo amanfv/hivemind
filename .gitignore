@@ -13,3 +13,6 @@ hivemind.db
 
 # naive version scratch file
 naive_budget.json
+
+# agent passes (the database keeps only hashes)
+tokens.json

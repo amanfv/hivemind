@@ -57,3 +57,21 @@ This splits the jobs: **the chain** proves a payment *really happened*; **hivemi
 **Something we discovered:** GOAT's public server doesn't count payments still waiting to go into a block when you ask "what's my next cheque number?". Agents even 0.4 s apart got the same number. So the overspend demo uses agents with the jam fixed (they count cheque numbers themselves), to show that **even with the jam fixed, the budget still breaks.**
 
 **In our own words:** _(to fill in: why did the agents see "spent = 0" even though others had already paid?)_
+
+## Step 3: hivemind's rules block three attacks
+
+**What we built:** four protections, checked at two gates, plus reasons in the logbook.
+- **Gate 1** (before contacting the shop): is the pass real and switched on? Is the shop on our approved list?
+- **Gate 2** (on the shop's quote): official USDC? Paying the shop's *approved* address? Price under the cap? Quote not expired?
+- **The hold:** in one locked database step (well under a millisecond, no network calls), check there's room in the team budget AND this agent's limit, and set the money aside right away. Then pay with no lock held. Payment confirmed → spent. Failed → released.
+
+**Same attacks, now against hivemind:**
+| Attack | Naive | Hivemind |
+|---|---|---|
+| Overspending | 10 paid, 0.10 on a 0.05 budget (200%) | 10 agents at the *same instant*: **exactly 5 paid, 5 refused**, spent 100% |
+| Wrong shop | Attacker got 0.01, no report | **Refused before paying:** payTo isn't the shop's approved address. 0 lost. |
+| Stolen access | Whole wallet to the attacker | Thief has agent3's *pass*, not the key: can't pay itself (refused), 3 of 6 paid then **over agent3's 0.03 limit**, **off switch** stops it, agent1 keeps working. **Attacker got 0.** |
+
+**The key line for the pitch:** with hivemind, a stolen pass can only ever buy from approved shops, up to that one agent's limit. It can never send money to the thief.
+
+**In our own words:** _(to fill in: how does the hold stop two agents from both seeing "room left"?)_

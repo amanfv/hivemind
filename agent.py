@@ -10,9 +10,11 @@ import uuid
 
 import httpx
 
+from admin import load_token
+
 GATEWAY = "http://127.0.0.1:8000"
 SHOP = "http://127.0.0.1:8001"
-TOKEN = "tok-agent1-demo"  # this agent's badge (not the wallet key)
+TOKEN = load_token("agent1")  # this agent's pass (not the wallet key), from tokens.json
 
 
 async def main(topic):
