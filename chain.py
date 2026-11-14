@@ -22,10 +22,13 @@ RPC_URL = "https://rpc.testnet3.goat.network"
 CHAIN_ID = 48816
 EXPLORER = "https://explorer.testnet3.goat.network"
 
-# Test USDC with a public claimTokens() faucet: 10 USDC per wallet per 24 h.
-# TODO: confirm with the organizers this is the token the rules expect.
-USDC_ADDRESS = "0x5900e383062Cbe2d8f977e10AEF990cc9472C99c"
+# Official hackathon tokens (from the rules). We pay in USDC.
+USDC_ADDRESS = "0x29D1Ee93e9ecf6E50F309f498e40a6b42D352Fa1"
+USDT_ADDRESS = "0xdcE0Af57E8F2CE957b3838Cd2A2F3F3677965Dd3"  # not used yet
 USDC_DECIMALS = 6  # 1 USDC is stored as 1_000_000 "units"
+
+# Official token faucet: 20 USDC per claim, at most 2 claims per wallet.
+FAUCET_ADDRESS = "0x89e7dfd01a86e5393ce6d8A78c9aa6653Ee113A6"
 
 # The few token functions we use, described so web3 knows how to call them.
 TOKEN_ABI = [
@@ -35,12 +38,20 @@ TOKEN_ABI = [
     {"name": "transfer", "type": "function", "stateMutability": "nonpayable",
      "inputs": [{"name": "to", "type": "address"}, {"name": "value", "type": "uint256"}],
      "outputs": [{"name": "", "type": "bool"}]},
-    {"name": "claimTokens", "type": "function", "stateMutability": "nonpayable",
-     "inputs": [], "outputs": []},
     {"name": "Transfer", "type": "event", "anonymous": False,
      "inputs": [{"name": "from", "type": "address", "indexed": True},
                 {"name": "to", "type": "address", "indexed": True},
                 {"name": "value", "type": "uint256", "indexed": False}]},
+]
+
+# The two faucet functions we use.
+FAUCET_ABI = [
+    {"name": "claimToken", "type": "function", "stateMutability": "nonpayable",
+     "inputs": [{"name": "tokenAddress", "type": "address"}], "outputs": []},
+    {"name": "canClaim", "type": "function", "stateMutability": "view",
+     "inputs": [{"name": "tokenAddress", "type": "address"},
+                {"name": "userAddress", "type": "address"}],
+     "outputs": [{"name": "", "type": "bool"}, {"name": "", "type": "string"}]},
 ]
 
 # --- Connection ---------------------------------------------------------------
@@ -50,6 +61,7 @@ w3 = AsyncWeb3(AsyncHTTPProvider(RPC_URL))
 w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
 
 usdc = w3.eth.contract(address=USDC_ADDRESS, abi=TOKEN_ABI)
+faucet = w3.eth.contract(address=FAUCET_ADDRESS, abi=FAUCET_ABI)
 
 
 # --- Wallets ------------------------------------------------------------------
@@ -137,9 +149,15 @@ async def pay_usdc(account, to, amount):
     return await send(account, usdc.functions.transfer(to, usdc_to_units(amount)))
 
 
+async def can_claim_usdc(address):
+    """Ask the faucet whether this wallet may claim USDC now: (yes/no, reason)."""
+    ok, reason = await faucet.functions.canClaim(USDC_ADDRESS, address).call()
+    return ok, reason
+
+
 async def claim_usdc(account):
-    """Claim free test USDC from the token's faucet (10 USDC, once per 24 h)."""
-    return await send(account, usdc.functions.claimTokens())
+    """Ask the faucet for free test USDC (20 per claim, at most 2 per wallet)."""
+    return await send(account, faucet.functions.claimToken(USDC_ADDRESS))
 
 
 # --- Receipts --------------------------------------------------------------------
