@@ -11,6 +11,10 @@ ourselves with the same number, so the payments numbered after it aren't
 stuck forever waiting for it.
 """
 
+import asyncio
+import os
+import signal
+
 import chain
 from db import conn, log, now
 
@@ -20,6 +24,10 @@ _next_nonce = None
 # Test switch (used by tests/gap_fill.py through the gateway): pretend the chain
 # rejects the payment that gets this cheque number.
 fail_nonce = None
+
+# Test switch (used by tests/crash.py): kill this process the instant the first
+# photocopy is saved, before the payment is sent. Like pulling the power cord.
+CRASH_AFTER_SAVE = os.environ.get("HIVEMIND_CRASH_AFTER_SAVE") == "1"
 
 
 class PaymentRejected(Exception):
@@ -51,18 +59,23 @@ def _take_nonce():
     return n
 
 
-def _save(nonce, tx_hash, raw_tx, kind, hold_id):
+def _save(nonce, tx_hash, raw_tx, kind, hold_id, amount_units=0):
     conn.execute(
-        "INSERT INTO payments (nonce, tx_hash, raw_tx, kind, hold_id, status, created, updated)"
-        " VALUES (?, ?, ?, ?, ?, 'signed', ?, ?)",
-        (nonce, tx_hash, raw_tx, kind, hold_id, now(), now()),
+        "INSERT INTO payments (nonce, tx_hash, raw_tx, kind, hold_id, amount_units, status,"
+        " created, updated) VALUES (?, ?, ?, ?, ?, ?, 'signed', ?, ?)",
+        (nonce, tx_hash, raw_tx, kind, hold_id, amount_units, now(), now()),
     )
 
 
-def mark(tx_hash, status):
-    """Record what happened to a saved payment: sent / confirmed / failed / rejected."""
-    conn.execute("UPDATE payments SET status = ?, updated = ? WHERE tx_hash = ?",
-                 (status, now(), tx_hash))
+def mark(tx_hash, status, receipt=None):
+    """Record what happened to a saved payment: sent / confirmed / failed / rejected.
+
+    Pass the receipt for mined payments (confirmed or failed) so the actual
+    fee is recorded: reconciliation adds these up.
+    """
+    gas_wei = receipt.gasUsed * receipt.effectiveGasPrice if receipt is not None else None
+    conn.execute("UPDATE payments SET status = ?, gas_wei = COALESCE(?, gas_wei), updated = ?"
+                 " WHERE tx_hash = ?", (status, gas_wei, now(), tx_hash))
 
 
 async def _send_saved(tx_hash, raw_tx, nonce):
@@ -86,7 +99,9 @@ async def pay(hold_id, to, amount, agent=None, purchase_id=None, _retried=False)
     """
     nonce = _take_nonce()
     tx_hash, raw_tx = await chain.sign_usdc_transfer(WALLET, to, amount, nonce)
-    _save(nonce, tx_hash, raw_tx, "purchase", hold_id)  # photocopy BEFORE sending
+    _save(nonce, tx_hash, raw_tx, "purchase", hold_id, chain.usdc_to_units(amount))  # photocopy FIRST
+    if CRASH_AFTER_SAVE:
+        os.kill(os.getpid(), signal.SIGKILL)  # test: die between photocopy and sending
     try:
         await _send_saved(tx_hash, raw_tx, nonce)
         return tx_hash
@@ -115,4 +130,14 @@ async def fill_gap(nonce):
         return None
     log("gap_fill", f"filled hole at cheque #{nonce} with a 0 BTC payment to ourselves",
         tx_hash=tx_hash, explorer=chain.tx_link(tx_hash))
+    asyncio.create_task(_watch(tx_hash))
     return tx_hash
+
+
+async def _watch(tx_hash):
+    """Wait for a gap filler to be mined and record it (and its fee)."""
+    try:
+        receipt = await chain.wait_for_receipt(tx_hash, timeout=120)
+    except Exception:
+        return  # still unknown; recovery will look again at the next start
+    mark(tx_hash, "confirmed" if receipt.status == 1 else "failed", receipt)

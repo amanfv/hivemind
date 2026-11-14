@@ -91,4 +91,23 @@ This splits the jobs: **the chain** proves a payment *really happened*; **hivemi
 | Traffic jam | 10 at once: **9 of 10 failed** (everyone wrote cheque #13) | **20 at once: 20 of 20 succeeded** in 7 s, cheques #16–#35, one each |
 | Hole test | — | Cheque #37 forced to fail → filled with a 0 BTC cheque → #38 and #39 still went through, hold released. **PASS** |
 
-**In our own words:** _(to fill in: what would happen to cheques #38 and #39 if we didn't fill the hole at #37?)_
+**What if we didn't fill the hole at #37?** Cheques are cashed strictly in order, so #38 and #39 would wait forever for a #37 that never comes. So would every payment after them: one rejected cheque would silently freeze all of hivemind's payments, and their holds would stay "held", so the budget would look used up. Filling #37 with a 0 BTC cheque to ourselves (it costs only a tiny fee) gives the chain the number it's waiting for, and everything behind it goes through. Like a queue served strictly by ticket number: if ticket #37 walks away, the clerk takes #37 themselves so the line moves again.
+
+## Step 5: surviving a crash
+
+**What we tested:** `kill -9` is like pulling hivemind's power cord mid-payment: no cleanup, and everything in memory is gone. Only the database survives.
+
+**The restart routine** runs before hivemind accepts any request. It reads the photocopies and sorts every unfinished purchase into one of four cases:
+1. Money held, no photocopy → crashed before writing the cheque. Release the money; the agent may retry.
+2. Photocopy, cashed → it went through. Mark it spent and collect the report from the shop.
+3. Photocopy, not cashed → mail **the same** copy again. That cheque number can only be cashed once, so this can't pay twice.
+4. Photocopy, but its number was cashed by a different cheque → it can never be cashed. Release the money.
+
+**Results (PASS):**
+- **Random crash:** 5 agents mid-purchase. At the kill: 3 cheques sent, 2 only photocopied. On restart, recovery resent 4, confirmed 5, collected 5 reports. Every agent retried with its purchase ID and got its report. **Exactly 1 payment each.**
+- **Crash between photocopy and sending:** cheque #45 existed only as a photocopy, not on the chain. Recovery sent that same saved copy; the agent got its report; 1 payment.
+- **Reconciliation:** since the checkpoint, the chain says 0.06 USDC left the wallet, and hivemind's ledger says 0.06. Fees match to the last wei. **The books match the chain exactly.**
+
+**Confirmed payments can't be reversed.** The hold is the "undo" *before* paying. After paying, the protection is that hivemind never pays twice and always knows exactly what it paid.
+
+**In our own words:** _(to fill in: why is resending the SAME photocopy safe, but writing a NEW cheque would not be?)_

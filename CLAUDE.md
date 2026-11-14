@@ -141,7 +141,7 @@ Who pays whom:
 | 2 ✅ | Naive version + attack scripts (can run in parallel with 3–4) | Each attack visibly loses money or jams on the explorer |
 | 3 ✅ | Holds, tokens with limits and a kill switch, approved addresses, price cap | Overspending, credential theft, and redirection attacks are blocked |
 | 4 ✅ | Purchase IDs + payment queue | Double pay and nonce collisions are blocked; 20 agents run clean |
-| 5 | Crash recovery + reconciliation | `kill -9` mid-payment, then restart: no double pay, and the ledger matches the chain |
+| 5 ✅ | Crash recovery + reconciliation | `kill -9` mid-payment, then restart: no double pay, and the ledger matches the chain |
 | 6 | Global-lock flag, benchmark chart, dashboard | The chart shows lazy lock vs hivemind, both correct |
 | 7 | Write-ups, demo script, backup video | Submitted before 10 AM Sunday |
 
@@ -166,6 +166,11 @@ Steps 0–5 are must-haves.
 - `admin.py setup` makes **20** passes.
 - All five attacks have `--target hivemind`: `overspend` (10 at the same instant, budget 0.05 → exactly 5 paid), `redirect` (refused at gate 2), `steal` (thief has agent3's pass: evil quote refused, 3 of 6 paid then over the limit, off switch, agent1 unaffected), `double_pay` (retry with the same purchase ID → 1 payment, report replayed), `jam` (20 agents at the same instant → 20/20 in about 7 s).
 - `tests/gap_fill.py` (`python -m tests.gap_fill`): forces a rejection, checks that the hole is filled on chain, that later payments confirm, and that the hold is released.
+- `recovery.py`: `recover()` runs in the gateway's lifespan **before** `payqueue.start()`. Pass 1: each `signed`/`sent` photocopy in nonce order: has a receipt → settle; nonce already used on chain by another tx → case 4 (release); else rebroadcast the same raw bytes. Pass 2: wait for receipts → `_settle` (confirmed → spent → `_deliver` collects the report from the shop with the saved order_id/url; reverted → release). Pass 3: `working` purchases: no hold or held with no photocopy → release + `failed` (retryable); spent → `_deliver`. Pass 4: `_fill_holes()` for any nonce between the chain's mined count and our max saved nonce with no live tx. Logs stage `recovery`.
+- `payments` also stores `amount_units` and `gas_wei` (set by `payqueue.mark(tx, status, receipt)`); gap fillers are watched until mined. `purchases` stores `url`. Table `checkpoints`.
+- `admin.py checkpoint` (refuses while anything is in flight) / `admin.py reconcile`: since the checkpoint, the chain's USDC drop == the sum of confirmed purchase `amount_units`, and the chain's BTC drop == the sum of `gas_wei` of mined payments. Exit code 0 on a match. Only valid if nothing outside hivemind used the shared wallet since the checkpoint.
+- `HIVEMIND_CRASH_AFTER_SAVE=1` env var: `payqueue.pay` kills its own process right after saving the photocopy (test only).
+- `tests/crash.py` (`python -m tests.crash`, stop the hivemind tab first; the shop must be running): spawns its own gateway. A: 5 agents, kill -9 as soon as a payment is `sent`, restart, retry with the same IDs. B: crash-after-save switch, restart, retry. Checks one payment per purchase, nothing stuck, reconcile match. **Passed**: A killed with 3 sent + 2 signed-only; recovery resent 4, confirmed 5, delivered 5; B resent the never-sent cheque #45; USDC 0.06 = 0.06, BTC fees matched to the wei.
 - `seller.py` demo modes are URLs: `/slow/report/{topic}` (delivers 8 s after checking the payment) and `/evil/report/{topic}` (quote's payTo swapped to the attacker; the shop still expects payment to itself, so it refuses the proof).
 - `chain.py` also has `send_btc()`, and `send()` / `pay_usdc()` take an optional `nonce` (None = ask the chain).
 - `make_wallets.py` is add-only now: it adds missing roles and never replaces existing ones. Roles: shared, seller, attacker, **naive**.

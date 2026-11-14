@@ -87,6 +87,15 @@ CREATE TABLE IF NOT EXISTS payments (
     created  TEXT NOT NULL,
     updated  TEXT NOT NULL
 );
+
+-- Reconciliation starting points: what the shared wallet held at a moment.
+CREATE TABLE IF NOT EXISTS checkpoints (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              TEXT NOT NULL,
+    usdc_units      INTEGER NOT NULL,   -- shared wallet's USDC then
+    btc_wei         INTEGER NOT NULL,   -- shared wallet's BTC (fee money) then
+    last_payment_id INTEGER NOT NULL    -- payments after this id count toward the check
+);
 """
 
 # isolation_level=None: we open transactions ourselves (BEGIN IMMEDIATE in policy.py).
@@ -95,6 +104,17 @@ conn.row_factory = sqlite3.Row
 conn.execute("PRAGMA journal_mode=WAL")   # lets admin.py read/write while the gateway runs
 conn.execute("PRAGMA busy_timeout=5000")  # wait (don't fail) if another process holds the lock
 conn.executescript(SCHEMA)
+
+
+def _add_column(table, column, decl):
+    """Add a column to an existing table if it's missing (older hivemind.db files)."""
+    if column not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
+_add_column("payments", "amount_units", "INTEGER")  # USDC this payment sends (purchases)
+_add_column("payments", "gas_wei", "INTEGER")       # actual fee paid, once mined
+_add_column("purchases", "url", "TEXT")             # what was bought (to finish after a crash)
 
 
 def now():

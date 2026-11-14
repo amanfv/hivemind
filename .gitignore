@@ -16,3 +16,6 @@ naive_budget.json
 
 # agent passes (the database keeps only hashes)
 tokens.json
+
+# test output
+*.log

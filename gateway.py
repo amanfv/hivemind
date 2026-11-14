@@ -30,6 +30,7 @@ import chain
 import payqueue
 import policy
 import purchases
+import recovery
 from db import log
 
 PORT = 8000
@@ -42,6 +43,8 @@ in_flight = {}
 
 @asynccontextmanager
 async def lifespan(app):
+    # Before opening the door: sort out anything a crash left half-done.
+    await recovery.recover()
     nonce = await payqueue.start()
     print(f"[hivemind] shared wallet {payqueue.WALLET.address}, next cheque number {nonce}")
     yield
@@ -73,7 +76,7 @@ async def buy(req: BuyRequest, authorization: str | None = Header(default=None))
         return JSONResponse(status_code=401, content=fail(str(e)))
 
     # --- Purchase ID: have we seen this purchase before? -----------------------------
-    state, saved = purchases.claim(agent, pid)
+    state, saved = purchases.claim(agent, pid, req.url)
     key = (agent, pid)
     if state == "replay":
         log("dedupe", f"purchase {pid} already finished: returning the first result, NOT paying again",
@@ -166,12 +169,12 @@ async def _purchase(agent, req):
             tx_hash=tx_hash, explorer=link)
         return 504, fail("payment sent but not confirmed yet", txHash=tx_hash, explorer=link), "working"
     if receipt.status != 1:
-        payqueue.mark(tx_hash, "failed")
+        payqueue.mark(tx_hash, "failed", receipt)
         policy.release(hold_id, tx_hash)
         log("error", "payment failed on chain, hold released", agent=agent, purchase_id=pid,
             tx_hash=tx_hash, explorer=link)
         return 502, fail("payment failed on chain", txHash=tx_hash, explorer=link), "failed"
-    payqueue.mark(tx_hash, "confirmed")
+    payqueue.mark(tx_hash, "confirmed", receipt)
     policy.mark_spent(hold_id, tx_hash)
     gas_btc = Decimal(receipt.gasUsed * receipt.effectiveGasPrice) / 10**18
     log("confirmed", f"in block {receipt.blockNumber}, hold -> spent, gas {gas_btc} BTC",

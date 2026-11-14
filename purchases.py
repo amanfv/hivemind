@@ -18,20 +18,20 @@ from db import conn, now
 from policy import Denied
 
 
-def claim(agent, purchase_id):
+def claim(agent, purchase_id, url=None):
     """Returns ("new", None), ("working", None) or ("replay", saved_result)."""
     conn.execute("BEGIN IMMEDIATE")
     try:
         row = conn.execute("SELECT * FROM purchases WHERE agent = ? AND purchase_id = ?",
                            (agent, purchase_id)).fetchone()
         if row is None:
-            conn.execute("INSERT INTO purchases (agent, purchase_id, status, created, updated)"
-                         " VALUES (?, ?, 'working', ?, ?)", (agent, purchase_id, now(), now()))
+            conn.execute("INSERT INTO purchases (agent, purchase_id, status, url, created, updated)"
+                         " VALUES (?, ?, 'working', ?, ?, ?)", (agent, purchase_id, url, now(), now()))
             state = ("new", None)
         elif row["status"] == "failed":
             # Failed before any money moved: the agent may try again with the same ID.
-            conn.execute("UPDATE purchases SET status = 'working', order_id = NULL, updated = ?"
-                         " WHERE agent = ? AND purchase_id = ?", (now(), agent, purchase_id))
+            conn.execute("UPDATE purchases SET status = 'working', order_id = NULL, url = ?, updated = ?"
+                         " WHERE agent = ? AND purchase_id = ?", (url, now(), agent, purchase_id))
             state = ("new", None)
         elif row["status"] == "done":
             state = ("replay", json.loads(row["result"]))

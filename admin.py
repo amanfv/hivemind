@@ -5,16 +5,20 @@
     .venv/bin/python admin.py disable agent3   # the off switch for one pass
     .venv/bin/python admin.py enable agent3
     .venv/bin/python admin.py status           # budget, spent, held, per agent
+    .venv/bin/python admin.py checkpoint       # remember the wallet's balances now
+    .venv/bin/python admin.py reconcile        # ledger vs chain since the checkpoint
 
 Works while the gateway is running (they share hivemind.db).
 """
 
+import asyncio
 import json
 import os
 import secrets
 import sys
 
 import chain
+import db
 import policy
 from db import conn
 
@@ -88,6 +92,67 @@ def status():
               f"{u(total('status = ? AND agent = ?', 'held', a['name'])):>8}")
 
 
+async def _wallet_now():
+    addr = chain.load_address("shared")
+    usdc_units = await chain.usdc.functions.balanceOf(addr).call()
+    btc_wei = await chain.w3.eth.get_balance(addr)
+    return usdc_units, btc_wei
+
+
+def _unsettled():
+    held = conn.execute("SELECT COUNT(*) FROM holds WHERE status = 'held'").fetchone()[0]
+    unsent = conn.execute("SELECT COUNT(*) FROM payments WHERE status IN ('signed', 'sent')").fetchone()[0]
+    return held, unsent
+
+
+async def checkpoint():
+    """Record what the shared wallet holds right now: the starting point for reconcile."""
+    held, unsent = _unsettled()
+    if held or unsent:
+        sys.exit(f"Not now: {held} hold(s) and {unsent} payment(s) still in flight.")
+    usdc_units, btc_wei = await _wallet_now()
+    last = conn.execute("SELECT COALESCE(MAX(id), 0) FROM payments").fetchone()[0]
+    conn.execute("INSERT INTO checkpoints (ts, usdc_units, btc_wei, last_payment_id) VALUES (?, ?, ?, ?)",
+                 (db.now(), usdc_units, btc_wei, last))
+    print(f"Checkpoint: shared wallet holds {chain.units_to_usdc(usdc_units)} USDC and "
+          f"{btc_wei / 10**18:.18f} BTC")
+
+
+async def reconcile(quiet=False):
+    """Does hivemind's ledger match the chain since the last checkpoint?
+
+    chain:  how much USDC and BTC actually left the shared wallet
+    ledger: confirmed purchase payments (USDC) + recorded fees of everything mined (BTC)
+    Returns True if both match exactly.
+    """
+    cp = conn.execute("SELECT * FROM checkpoints ORDER BY id DESC LIMIT 1").fetchone()
+    if cp is None:
+        sys.exit("No checkpoint yet: run  admin.py checkpoint  first.")
+    usdc_now, btc_now = await _wallet_now()
+    chain_usdc = cp["usdc_units"] - usdc_now
+    chain_btc = cp["btc_wei"] - btc_now
+    ledger_usdc = conn.execute(
+        "SELECT COALESCE(SUM(amount_units), 0) FROM payments WHERE id > ? AND kind = 'purchase'"
+        " AND status = 'confirmed'", (cp["last_payment_id"],)).fetchone()[0]
+    ledger_btc = conn.execute(
+        "SELECT COALESCE(SUM(gas_wei), 0) FROM payments WHERE id > ? AND status IN ('confirmed', 'failed')",
+        (cp["last_payment_id"],)).fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM payments WHERE id > ? AND kind = 'purchase'"
+                         " AND status = 'confirmed'", (cp["last_payment_id"],)).fetchone()[0]
+    held, unsent = _unsettled()
+    ok = chain_usdc == ledger_usdc and chain_btc == ledger_btc
+    if not quiet:
+        print(f"Since checkpoint {cp['ts']}  ({count} confirmed purchase payments)")
+        print(f"  USDC  chain says {chain.units_to_usdc(chain_usdc)} left the wallet, "
+              f"ledger says {chain.units_to_usdc(ledger_usdc)}  "
+              f"{'MATCH' if chain_usdc == ledger_usdc else 'MISMATCH'}")
+        print(f"  BTC   chain says {chain_btc} wei of fees, ledger says {ledger_btc} wei  "
+              f"{'MATCH' if chain_btc == ledger_btc else 'MISMATCH'}")
+        if held or unsent:
+            print(f"  (note: {held} hold(s) and {unsent} payment(s) still in flight)")
+    return ok
+
+
 def load_token(name):
     """An agent's pass, from tokens.json (used by agent.py and the attack scripts)."""
     with open(TOKENS_FILE) as f:
@@ -104,5 +169,9 @@ if __name__ == "__main__":
         set_enabled(args[0], cmd == "enable")
     elif cmd == "status":
         status()
+    elif cmd == "checkpoint":
+        asyncio.run(checkpoint())
+    elif cmd == "reconcile":
+        sys.exit(0 if asyncio.run(reconcile()) else 1)
     else:
         sys.exit(__doc__)
