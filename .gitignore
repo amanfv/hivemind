@@ -1,0 +1,15 @@
+# agent board local state (cursor, cached login)
+.board/
+
+# claude: personal settings stay local; the shared board hooks are committed
+.claude/settings.local.json
+
+# macos
+.DS_Store
+
+# python
+.venv/
+__pycache__/
+
+# secrets: never commit
+.env
