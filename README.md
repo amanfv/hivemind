@@ -2,7 +2,7 @@
 
 **A payment agent that can't be steered by prompt injection, by design.**
 
-Built for the Agentic Payments Hackathon Toronto. Based on Google DeepMind's CaMeL paper, *Defeating Prompt Injections by Design* (2025).
+Built for the Agentic Payments Hackathon Toronto.
 
 ## The problem
 
@@ -40,7 +40,7 @@ user request ──► Planner (P-LLM) ──► plan: a straight list of tool c
    - **P1, payee integrity:** the payee must be TRUSTED.
    - **P2, amount cap:** an UNTRUSTED amount must be at most the user's cap (\$100 in the demo).
 
-   If a rule fails, the agent stops and asks the user, showing where the value came from, e.g. *"payee came from email:inv_77"*.
+   If a rule fails, the agent stops and asks the user, showing where the value came from, e.g. *"payee came from email:inv_42"*.
 
 For "Pay my Toronto Hydro bill from my latest email" the planner writes:
 
@@ -100,7 +100,7 @@ The baseline resists the crude injections, but the realistic bank-change notice 
 **Guaranteed**, if the interpreter and policy are correct: email text can't change which steps run, and can't send money to a payee it chose, or more than the cap, without the user seeing where that value came from.
 
 **Not guaranteed:**
-- **Choosing among legitimate options.** If a merchant has to be picked from untrusted search results, an attacker's listing can still win. CaMeL limits what untrusted data controls; it can't make untrusted data true.
+- **Choosing among legitimate options.** If a merchant has to be picked from untrusted search results, an attacker's listing can still win. This design limits what untrusted data controls; it can't make untrusted data true.
 - **Amounts under the cap.** An injected email can still change the amount, as long as it stays under the cap. The cap bounds the damage.
 - **Payees that only appear in the email** can't be paid automatically (run 3).
 
