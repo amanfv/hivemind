@@ -1,0 +1,32 @@
+sequenceDiagram
+  autonumber
+  participant A as Agent (pass, no key)
+  participant H as hivemind gateway
+  participant DB as hivemind.db
+  participant Q as Payment queue
+  participant S as Shop
+  participant C as GOAT chain
+
+  Note over A,H: Intent
+  A->>H: POST /buy {url, reason, purchaseId} with its pass
+  Note over H,DB: Policy, gate 1
+  H->>DB: Pass real and on? Shop approved?
+  H->>DB: Purchase ID new? If seen, replay or wait. Never pay twice
+  Note over H,S: Quote
+  H->>S: GET the report
+  S-->>H: 402 Payment Required {price, payTo, orderId, expiry}
+  Note over H,DB: Policy, gate 2 and the hold
+  H->>DB: Official USDC? payTo approved? Price under cap? Not expired?
+  H->>DB: HOLD: room in budget and agent limit? Set it aside (locked, under 1 ms)
+  Note over H,C: Settlement (no lock held while waiting)
+  H->>Q: pay(hold, payTo, price)
+  Q->>DB: Take the next cheque number, sign, SAVE A COPY
+  Q->>C: Send the signed payment
+  C-->>H: Receipt, about 3.4 s later
+  H->>DB: Hold becomes spent (or released if it failed)
+  H->>S: GET the report + X-PAYMENT {orderId, txHash}
+  S->>C: Is there a USDC note: right amount, to me?
+  S-->>H: 200 + the report
+  Note over H,DB: Audit
+  H->>DB: Log delivered, save the result for any retry
+  H-->>A: The report + explorer link

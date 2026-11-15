@@ -37,7 +37,7 @@ async def hivemind_buy(client, agent, url, reason="needed for my task", token=No
     )
     body = r.json()
     return {"agent": agent, "ok": body.get("status") == "ok", "error": body.get("error"),
-            "tx": body.get("txHash"), "explorer": body.get("explorer"),
+            "code": r.status_code, "tx": body.get("txHash"), "explorer": body.get("explorer"),
             "replayed": body.get("replayed", False),
             "report": (body.get("data") or {}).get("report")}
 

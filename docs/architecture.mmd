@@ -1,0 +1,28 @@
+flowchart TB
+  AG["AI agents: agent1 ... agent20<br/>each holds a pass, never the wallet key"]
+  OP(["Operator (you)"])
+
+  subgraph HM["hivemind: one process on this laptop"]
+    GW["Gateway: POST /buy<br/>runs each purchase start to finish"]
+    PUR["Purchase IDs<br/>same ID = never pay twice"]
+    POL["Policy<br/>gate 1: pass on? shop approved?<br/>gate 2: right token, approved payTo, price cap<br/>hold: budget + agent limit, locked under 1 ms"]
+    PQ["Payment queue<br/>the ONLY part with the wallet key<br/>number, sign, save a copy, send"]
+    REC["Recovery<br/>at startup, finishes what a crash left"]
+    DASH["Dashboard<br/>live view + off switches"]
+    GW --> PUR --> POL --> PQ
+  end
+
+  SHOP["Shop (x402 seller)<br/>402 quote, checks the chain,<br/>then hands over the item"]
+  CHAIN[("GOAT Testnet3<br/>USDC moves here<br/>the source of truth")]
+  DB[("hivemind.db (SQLite)<br/>budget, passes, approved shops, holds,<br/>purchases, payment copies, logbook")]
+  ADMIN["admin.py<br/>passes, budget, on/off,<br/>checkpoint, reconcile"]
+
+  AG <-->|"buy request / item + explorer link"| GW
+  OP --> DASH
+  OP --> ADMIN
+  GW <-->|"quote, then proof and item"| SHOP
+  PQ -->|"signed USDC payment"| CHAIN
+  SHOP -.->|"verifies the payment itself"| CHAIN
+  REC -.->|"what happened to saved payments?"| CHAIN
+  HM <==>|"reads and writes"| DB
+  ADMIN --> DB

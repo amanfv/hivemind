@@ -32,7 +32,19 @@ RECEIPT_WAIT = 90  # seconds to wait for a resent payment to be mined
 
 
 async def recover():
-    summary = {"released": 0, "confirmed": 0, "resent": 0, "replaced": 0, "delivered": 0, "filled": 0}
+    summary = {"released": 0, "confirmed": 0, "resent": 0, "replaced": 0, "delivered": 0, "filled": 0,
+               "corrected": 0}
+
+    # --- Pass 0: payments we marked 'rejected' that the chain actually accepted --------
+    # (a slow RPC can reply with an error even though the payment went through)
+    for p in conn.execute("SELECT * FROM payments WHERE status = 'rejected'").fetchall():
+        receipt = await chain.get_receipt(p["tx_hash"])
+        if receipt is not None:
+            summary["corrected"] += 1
+            log("recovery", f"cheque #{p['nonce']} was marked rejected but IS on chain: correcting the ledger",
+                tx_hash=p["tx_hash"], explorer=chain.tx_link(p["tx_hash"]))
+            await _settle(p, receipt, summary)
+
     pending = conn.execute(
         "SELECT * FROM payments WHERE status IN ('signed', 'sent') ORDER BY nonce, id").fetchall()
 
@@ -115,6 +127,8 @@ async def _settle(p, receipt, summary):
     if p["kind"] != "purchase" or p["hold_id"] is None:
         return
     hold = conn.execute("SELECT * FROM holds WHERE id = ?", (p["hold_id"],)).fetchone()
+    if hold is None:
+        return  # its budget period was already cleared; the payment record is still fixed
     if not ok:
         policy.release(hold["id"], p["tx_hash"])
         _fail(hold["agent"], hold["purchase_id"], "payment failed on chain; hold released")

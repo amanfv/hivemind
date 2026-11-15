@@ -9,6 +9,7 @@ Two kinds of money:
 """
 
 import json
+import time
 from decimal import Decimal
 
 from eth_account import Account
@@ -27,6 +28,10 @@ EXPLORER = "https://explorer.testnet3.goat.network"
 USDC_ADDRESS = "0x29D1Ee93e9ecf6E50F309f498e40a6b42D352Fa1"
 USDT_ADDRESS = "0xdcE0Af57E8F2CE957b3838Cd2A2F3F3677965Dd3"  # not used yet
 USDC_DECIMALS = 6  # 1 USDC is stored as 1_000_000 "units"
+# Gas allowance for one USDC transfer. Real use is ~52,000 (more the first time
+# an address receives USDC); only gas actually used is charged. A fixed value
+# saves asking the chain to estimate it before every payment.
+USDC_TRANSFER_GAS = 100_000
 
 # Official token faucet: 20 USDC per claim, at most 2 claims per wallet.
 FAUCET_ADDRESS = "0x89e7dfd01a86e5393ce6d8A78c9aa6653Ee113A6"
@@ -139,12 +144,28 @@ async def send_btc(account, to, amount_btc):
     return await _sign_and_broadcast(account, tx)
 
 
+FEE_CACHE_SECONDS = 15
+_fees = {"at": 0.0, "priority": None, "base": None}
+
+
+async def _fee_settings():
+    """Current fee settings, re-read at most every 15 s (they barely change on GOAT).
+
+    Asking before every payment doubled our requests to the public RPC, which
+    is rate-limited and slows down when hammered.
+    """
+    if _fees["priority"] is None or time.monotonic() - _fees["at"] > FEE_CACHE_SECONDS:
+        _fees["priority"] = await w3.eth.max_priority_fee
+        _fees["base"] = (await w3.eth.get_block("latest"))["baseFeePerGas"]
+        _fees["at"] = time.monotonic()
+    return _fees["priority"], _fees["base"]
+
+
 async def _nonce_and_fees(account, nonce=None):
     """The cheque number and fee settings for this account's next tx."""
     if nonce is None:
         nonce = await w3.eth.get_transaction_count(account.address, "pending")
-    priority_fee = await w3.eth.max_priority_fee
-    base_fee = (await w3.eth.get_block("latest"))["baseFeePerGas"]
+    priority_fee, base_fee = await _fee_settings()
     return {
         "from": account.address,
         "nonce": nonce,
@@ -180,7 +201,7 @@ async def _sign_and_broadcast(account, tx):
 async def sign_usdc_transfer(account, to, amount, nonce):
     """Build and sign (but don't send) a USDC payment. Returns (tx_hash, raw_tx)."""
     call = usdc.functions.transfer(to, usdc_to_units(amount))
-    tx = await call.build_transaction(await _nonce_and_fees(account, nonce))
+    tx = await call.build_transaction({**await _nonce_and_fees(account, nonce), "gas": USDC_TRANSFER_GAS})
     return _sign(account, tx)
 
 
@@ -197,7 +218,9 @@ async def sign_gap_filler(account, nonce):
 
 async def pay_usdc(account, to, amount, nonce=None):
     """Ask the USDC program to move `amount` USDC from `account` to `to`."""
-    return await send(account, usdc.functions.transfer(to, usdc_to_units(amount)), nonce)
+    tx_hash, raw_tx = await sign_usdc_transfer(account, to, amount, nonce)
+    await broadcast(raw_tx)
+    return tx_hash
 
 
 async def can_claim_usdc(address):
@@ -213,6 +236,17 @@ async def claim_usdc(account):
 
 # --- Receipts --------------------------------------------------------------------
 
+async def is_known(tx_hash):
+    """Has the chain seen this exact payment (waiting in line or already in a block)?"""
+    try:
+        await w3.eth.get_transaction(tx_hash)
+        return True
+    except TransactionNotFound:
+        return False
+    except Exception:
+        return await get_receipt(tx_hash) is not None
+
+
 async def get_receipt(tx_hash):
     """Return the receipt if the tx is already in a block, else None. Doesn't wait."""
     try:
@@ -222,8 +256,12 @@ async def get_receipt(tx_hash):
 
 
 async def wait_for_receipt(tx_hash, timeout=60):
-    """Wait until the tx is in a block (~3.4 s), then return its receipt."""
-    return await w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+    """Wait until the tx is in a block (~3.4 s), then return its receipt.
+
+    Checks once a second: blocks only come every ~3.4 s, and checking 10x a
+    second per payment (web3's default) floods the rate-limited public RPC.
+    """
+    return await w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout, poll_latency=1.0)
 
 
 def usdc_transfers(receipt):

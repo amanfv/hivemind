@@ -42,7 +42,9 @@ async def start():
     global _next_nonce
     from_chain = await chain.w3.eth.get_transaction_count(WALLET.address, "pending")
     saved = conn.execute("SELECT MAX(nonce) FROM payments").fetchone()[0]
-    _next_nonce = max(from_chain, saved + 1 if saved is not None else 0)
+    # Never move the counter backwards: other payments may have taken numbers
+    # while we were waiting for the chain's answer above.
+    _next_nonce = max(_next_nonce or 0, from_chain, saved + 1 if saved is not None else 0)
     return _next_nonce
 
 
@@ -105,6 +107,15 @@ async def pay(hold_id, to, amount, agent=None, purchase_id=None, _retried=False)
         await _send_saved(tx_hash, raw_tx, nonce)
         return tx_hash
     except Exception as e:
+        # An error reply doesn't always mean the payment failed: on a slow RPC
+        # the payment can be accepted and the reply still be an error (or a
+        # retried send can say "nonce too low" because OUR payment already
+        # used that number). Ask the chain before deciding.
+        if await chain.is_known(tx_hash):
+            mark(tx_hash, "sent")
+            log("paid", f"send reported '{str(e)[:80]}', but cheque #{nonce} is on chain: treating as sent",
+                agent=agent, purchase_id=purchase_id, tx_hash=tx_hash)
+            return tx_hash
         mark(tx_hash, "rejected")
         if "nonce too low" in str(e) and not _retried:
             # Something outside hivemind used this number (e.g. fund_naive.py).

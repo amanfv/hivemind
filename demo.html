@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hivemind attack lab</title>
+<style>
+  :root {
+    --paper: #EEF3EC;
+    --paper-deep: #E2EAE3;
+    --sheet: #F7FAF6;
+    --rule: #C6D3CB;
+    --ink: #1F2A44;
+    --ink-soft: #5B667D;
+    --paid: #2E6B47;
+    --refused: #B3261E;
+    --held: #A86B12;
+    --info: #2F5D8A;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    background-image:
+      repeating-linear-gradient(45deg, rgba(31,42,68,.025) 0 1px, transparent 1px 7px),
+      repeating-linear-gradient(-45deg, rgba(31,42,68,.025) 0 1px, transparent 1px 7px);
+    color: var(--ink);
+    font: 17px/1.45 var(--sans);
+    min-height: 100vh;
+  }
+  a { color: var(--info); }
+  button:focus-visible, a:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+  .page { max-width: 1680px; margin: 0 auto; padding: 18px 28px 32px; }
+
+  header { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+  .wordmark { font: 700 34px/1 var(--serif); margin: 0; white-space: nowrap; }
+  .wordmark span { font-weight: 400; color: var(--ink-soft); }
+  .scenes { display: flex; gap: 8px; flex-wrap: wrap; }
+  .scenes button, .reset {
+    font: 600 16px/1 var(--sans); color: var(--ink); background: var(--sheet);
+    border: 1.5px solid var(--ink); border-radius: 4px; padding: 10px 14px; cursor: pointer;
+  }
+  .scenes button:hover, .reset:hover { background: var(--paper-deep); }
+  .scenes button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .scenes button:disabled, .reset:disabled { opacity: .45; cursor: default; }
+  .reset { margin-left: auto; border-style: dashed; font-weight: 500; }
+  .health { font-size: 14px; color: var(--ink-soft); width: 100%; }
+  .health.bad { color: var(--refused); font-weight: 600; }
+
+  .story { margin: 18px 0 16px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+  .story h2 { font: 600 30px/1.2 var(--serif); margin: 0; }
+  .story p { margin: 0; font-size: 19px; color: var(--ink-soft); }
+  .clock { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+  .error { color: var(--refused); font-weight: 600; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1.5px solid var(--ink); background: var(--sheet); }
+  .side { padding: 18px 22px 22px; min-width: 0; }
+  .side + .side { border-left: 1.5px solid var(--ink); }
+  .side h3 { font: 700 26px/1.1 var(--serif); margin: 0; }
+  .side .who { color: var(--ink-soft); margin: 4px 0 14px; }
+  .naive h3 { color: var(--refused); }
+  .hive h3 { color: var(--paid); }
+
+  .figs { display: flex; gap: 34px; flex-wrap: wrap; align-items: baseline; }
+  .fig b { display: block; font: 600 40px/1.05 var(--serif); font-variant-numeric: tabular-nums lining-nums; }
+  .fig span { color: var(--ink-soft); font-size: 15px; }
+  .fig.attacker b { color: var(--refused); }
+  .fig.zero b { color: var(--ink-soft); }
+
+  .budgetbar { position: relative; height: 18px; margin: 14px 0 4px; border: 1.5px solid var(--ink); background: #fff; overflow: hidden; }
+  .budgetbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); transition: width .5s ease; }
+  .budgetbar i.over { background: repeating-linear-gradient(45deg, var(--refused) 0 7px, #D0534C 7px 14px); }
+  .budgetbar .line { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--refused); }
+  .barlabel { font-size: 13px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+
+  .verdict { margin: 16px 0 6px; padding: 12px 14px; border: 2.5px solid currentColor; border-radius: 4px; font: 600 22px/1.25 var(--serif); }
+  .verdict.bad { color: var(--refused); }
+  .verdict.good { color: var(--paid); }
+  .verdict.pending { color: var(--ink-soft); border-style: dashed; font: 500 17px/1.3 var(--sans); }
+
+  .switch { margin: 10px 0 0; font: 700 18px/1 var(--sans); padding: 12px 16px; background: var(--refused); color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+  .switch:hover { filter: brightness(1.08); }
+
+  .rows { list-style: none; margin: 14px 0 0; padding: 0; }
+  .row { display: grid; grid-template-columns: 176px 108px 1fr; gap: 12px; align-items: center; padding: 7px 0; border-top: 1px solid var(--rule); font-size: 16px; }
+  .row .label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .note { color: var(--ink-soft); font-size: 15px; min-width: 0; }
+  .row .note a { font: 13px var(--mono); margin-left: 6px; }
+  .stamp {
+    justify-self: start; font: 700 13px/1 var(--sans); letter-spacing: .06em; white-space: nowrap;
+    padding: 6px 8px 5px; border: 2.5px solid currentColor; border-radius: 4px; transform: rotate(-4deg);
+  }
+  .stamp.paid { color: var(--paid); }
+  .stamp.refused, .stamp.stolen { color: var(--refused); transform: rotate(3deg); }
+  .stamp.failed { color: #6B6B6B; }
+  .stamp.gaveup { color: var(--held); }
+  .stamp.switched { color: var(--refused); }
+  .stamp.busy { border: 0; transform: none; color: var(--ink-soft); font-weight: 500; letter-spacing: 0; padding-left: 0; }
+  .row.fresh { animation: land .9s ease-out; }
+  @keyframes land { from { background: rgba(168,107,18,.16); } to { background: transparent; } }
+
+  .empty { padding: 60px 24px; text-align: center; color: var(--ink-soft); font-size: 20px; }
+  .crash { padding: 22px 26px; }
+  .crash h3 { font: 700 26px/1.1 var(--serif); margin: 0 0 6px; }
+  .crash table { border-collapse: collapse; margin-top: 12px; width: 100%; }
+  .crash td { border-top: 1px solid var(--rule); padding: 9px 8px 9px 0; vertical-align: top; }
+  .crash td:first-child { font-weight: 600; width: 34%; }
+  .crash .match { color: var(--paid); font-weight: 700; }
+  .crash small { color: var(--ink-soft); }
+
+  @media (max-width: 1000px) {
+    .split { grid-template-columns: 1fr; }
+    .side + .side { border-left: 0; border-top: 1.5px solid var(--ink); }
+    .row { grid-template-columns: 1fr auto; }
+    .row .note { grid-column: 1 / -1; }
+    .fig b { font-size: 30px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row.fresh { animation: none; }
+    .budgetbar i { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1 class="wordmark">hivemind <span>attack lab</span></h1>
+    <nav class="scenes" id="scenes" aria-label="Scenes">
+      <button data-scene="overspend">Overspend</button>
+      <button data-scene="steal">Stolen pass</button>
+      <button data-scene="redirect">Wrong address</button>
+      <button data-scene="double_pay">Double pay</button>
+      <button data-scene="jam">Traffic jam</button>
+      <button data-scene="crash">Crash recovery</button>
+    </nav>
+    <button class="reset" id="reset" title="Hivemind budget back to 1 USDC, agent3 on, naive wallet topped up">Reset</button>
+    <div class="health" id="health">Checking the shop and hivemind…</div>
+  </header>
+
+  <section class="story" aria-live="polite">
+    <h2 id="title">Same attack, both sides, at the same time</h2>
+    <p id="story">Pick a scene. The left side has no protection; the right side runs through hivemind.</p>
+    <span class="clock" id="clock"></span>
+  </section>
+
+  <main id="main">
+    <div class="split">
+      <section class="side naive" id="left"></section>
+      <section class="side hive" id="right"></section>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ROLE_NAMES = {attacker: "the attacker", seller: "the shop", shared: "team wallet", naive: "naive wallet"};
+let known = {};  // lowercase address -> role
+// Escape, then show addresses short and labelled: 0xBE82…D403 (the attacker)
+const named = (text) => esc(text).replace(/0x[0-9a-fA-F]{40}/g, (a) => {
+  const role = known[a.toLowerCase()];
+  return `${a.slice(0, 6)}…${a.slice(-4)}${role ? ` (${ROLE_NAMES[role]})` : ""}`;
+});
+const STAMP = {paid: "PAID", refused: "REFUSED", failed: "FAILED", stolen: "STOLEN", gaveup: "GAVE UP", switched: "PASS OFF"};
+const BUSY = {waiting: "waiting", asking: "asking…", checking: "checking…", paying: "paying…"};
+const SIDES = {
+  left: {cls: "naive", title: "Without hivemind", who: "Every agent holds the wallet key and pays on its own."},
+  right: {cls: "hive", title: "With hivemind", who: "Agents hold passes. Only hivemind holds the key."},
+};
+let selected = null;
+let seen = {left: 0, right: 0};
+let lastKey = "";
+
+function sideHtml(key, side, scene) {
+  const meta = SIDES[key];
+  const spent = Number(side.spent), budget = side.budget ? Number(side.budget) : null;
+  const toAtt = Number(side.toAttacker);
+  let bar = "";
+  if (budget) {
+    const pct = spent / budget;
+    const scale = Math.max(1.25, pct * 1.1);
+    bar = `<div class="budgetbar" role="img" aria-label="${(pct * 100).toFixed(0)}% of budget">
+        <i class="${pct > 1 ? "over" : ""}" style="width:${Math.min(100, pct / scale * 100)}%"></i>
+        <span class="line" style="left:${100 / scale}%"></span></div>
+      <div class="barlabel"><span>0</span><span>budget ${budget.toFixed(2)}</span></div>`;
+  }
+  const figs = `<div class="figs">
+      <div class="fig"><b>${spent.toFixed(2)}</b><span>USDC left the wallet</span></div>
+      ${budget ? `<div class="fig"><b>${(spent / budget * 100).toFixed(0)}%</b><span>of the budget</span></div>` : ""}
+      <div class="fig attacker ${toAtt ? "" : "zero"}"><b>${toAtt.toFixed(2)}</b><span>to the attacker</span></div>
+    </div>`;
+  const verdict = side.verdict
+    ? `<div class="verdict ${side.good ? "good" : "bad"}">${esc(side.verdict)}</div>`
+    : `<div class="verdict pending">${scene.done ? "No verdict" : "Running…"}</div>`;
+  const sw = key === "right" && scene.canSwitchOff
+    ? `<button class="switch" id="switch">Switch off agent3's pass</button>` : "";
+  const rows = side.rows.map((r, i) => {
+    const stamp = STAMP[r.status]
+      ? `<span class="stamp ${r.status}">${STAMP[r.status]}</span>`
+      : `<span class="stamp busy">${BUSY[r.status] || ""}</span>`;
+    const link = r.link ? `<a href="${esc(r.link.href)}" target="_blank" rel="noopener">${esc(r.link.text)}</a>` : "";
+    return `<li class="row ${i >= seen[key] ? "fresh" : ""}"><span class="label">${esc(r.label)}</span>${stamp}
+      <span class="note">${named(r.note)}${link}</span></li>`;
+  }).join("");
+  seen[key] = side.rows.length;
+  return `<h3>${meta.title}</h3><p class="who">${meta.who}</p>${figs}${bar}${verdict}${sw}<ul class="rows">${rows}</ul>`;
+}
+
+function renderEmpty() {
+  for (const key of ["left", "right"]) {
+    const m = SIDES[key];
+    $(key).innerHTML = `<h3>${m.title}</h3><p class="who">${m.who}</p><div class="empty">Pick a scene above.</div>`;
+  }
+}
+
+function renderCrash() {
+  $("title").textContent = "Crash recovery";
+  $("story").textContent = "Pull the power cord on hivemind mid-payment (kill -9), start it again, and check the books.";
+  $("clock").textContent = "";
+  $("main").innerHTML = `<div class="split"><section class="side crash" style="grid-column:1/-1">
+    <h3>Recorded result from the crash test</h3>
+    <small>Run it yourself: stop hivemind, then <code>.venv/bin/python -m tests.crash</code></small>
+    <table>
+      <tr><td>Crash 1: kill -9 while 5 agents were paying</td><td>At the kill: 3 payments sent, 2 only saved. On restart, recovery resent the 4 unconfirmed saved copies, confirmed all 5 and collected all 5 reports. Every agent retried with its purchase ID and got its report. <b>Exactly 1 payment each.</b></td></tr>
+      <tr><td>Crash 2: right after the copy was saved, before sending</td><td>Payment number 45 existed only as hivemind's saved copy, not on the chain. Recovery sent that same copy. <b>1 payment</b>, and the agent got its report.</td></tr>
+      <tr><td>Do the books match the chain?</td><td>USDC that left the wallet: chain 0.06, hivemind's ledger 0.06 <span class="match">MATCH</span><br>Fees: chain 27,353,732,814 wei, ledger 27,353,732,814 wei <span class="match">MATCH</span></td></tr>
+    </table></section></div>`;
+}
+
+function restoreSplit() {
+  if (!$("left")) {
+    $("main").innerHTML = `<div class="split"><section class="side naive" id="left"></section><section class="side hive" id="right"></section></div>`;
+    lastKey = "";
+  }
+}
+
+function render(st) {
+  known = {};
+  for (const [role, a] of Object.entries(st.addresses || {})) known[a.toLowerCase()] = role;
+  const h = st.health;
+  const healthEl = $("health");
+  if (!h.gateway || !h.shop) {
+    healthEl.className = "health bad";
+    healthEl.textContent = `Not ready: ${!h.shop ? "start seller.py" : ""}${!h.shop && !h.gateway ? " and " : ""}${!h.gateway ? "start gateway.py" : ""}.`;
+  } else {
+    healthEl.className = "health";
+    const b = st.balances;
+    healthEl.textContent = st.resetting ? "Resetting: topping up the naive wallet…" :
+      `Ready. Naive wallet ${Number(b.naive ?? 0).toFixed(2)} USDC, team wallet ${Number(b.shared ?? 0).toFixed(2)} USDC, attacker ${Number(b.attacker ?? 0).toFixed(2)} USDC.`;
+  }
+  const busy = st.running || st.resetting;
+  document.querySelectorAll("#scenes button").forEach((b) => {
+    b.disabled = busy && b.dataset.scene !== "crash";
+    b.setAttribute("aria-pressed", String(b.dataset.scene === selected));
+  });
+  $("reset").disabled = busy;
+
+  if (selected === "crash") return;
+  const s = st.scene;
+  if (!s) { restoreSplit(); renderEmpty(); return; }
+  restoreSplit();
+  $("title").textContent = s.title;
+  $("story").textContent = s.story;
+  $("clock").innerHTML = s.error ? `<span class="error">${esc(s.error)}</span>` : `${s.elapsed.toFixed(1)} s${s.done ? "" : "…"}`;
+  const key = JSON.stringify([s.left, s.right, s.canSwitchOff, s.done]);
+  if (key === lastKey) return;  // only redraw when something changed (keeps buttons clickable)
+  lastKey = key;
+  $("left").innerHTML = sideHtml("left", s.left, s);
+  $("right").innerHTML = sideHtml("right", s.right, s);
+}
+
+let last = null;
+async function poll() {
+  try {
+    const r = await fetch("/state", {cache: "no-store"});
+    last = await r.json();
+    if (!selected && last.scene) selected = last.scene.name;
+    render(last);
+  } catch (e) {
+    $("health").className = "health bad";
+    $("health").textContent = "Can't reach the attack lab. Is demo.py running?";
+  }
+}
+
+$("scenes").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-scene]");
+  if (!b || b.disabled) return;
+  selected = b.dataset.scene;
+  if (selected === "crash") { renderCrash(); if (last) render(last); return; }
+  seen = {left: 0, right: 0};
+  lastKey = "";
+  const r = await fetch(`/scene/${selected}`, {method: "POST"});
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    $("clock").innerHTML = `<span class="error">${esc(e.error || "could not start")}</span>`;
+  }
+  poll();
+});
+
+$("main").addEventListener("click", async (ev) => {
+  if (ev.target.id !== "switch") return;
+  ev.target.disabled = true;
+  ev.target.textContent = "Switching off…";
+  await fetch("/switch-off-agent3", {method: "POST"});
+  poll();
+});
+
+$("reset").addEventListener("click", async () => {
+  $("reset").disabled = true;
+  const r = await fetch("/reset", {method: "POST"});
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    $("health").textContent = `Reset failed: ${e.error || r.status}`;
+  }
+  poll();
+});
+
+renderEmpty();
+poll();
+setInterval(poll, 500);
+</script>
+</body>
+</html>
