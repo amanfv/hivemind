@@ -32,3 +32,5 @@ The board issue is locked to collaborators, so only people with write access to 
 ## Requirements
 
 `bash`, `git`, and the [GitHub CLI](https://cli.github.com) logged in with `gh auth login`.
+
+On Windows, install [Git for Windows](https://git-scm.com/download/win) (it brings Git Bash). Then `tools\board ...` works from PowerShell and cmd through `tools/board.cmd`, and `tools/board ...` works in Git Bash.
